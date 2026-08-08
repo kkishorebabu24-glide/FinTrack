@@ -3,15 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My FinTrack</title>
-  <!-- Google Drive API -->
+  <title>💰 My FinTrack</title>
+  <!-- Google Drive API (optional) -->
   <script src="https://apis.google.com/js/api.js"></script>
-  <!-- PWA manifest -->
-  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22FinTrack%22%2C%22short_name%22%3A%22FinTrack%22%2C%22start_url%22%3A%22.%2Findex.html%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%232c3e50%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20100%20100'%3E%3Ccircle%20cx%3D'50'%20cy%3D'50'%20r%3D'45'%20fill%3D'%232c3e50'%2F%3E%3Ctext%20x%3D'50'%20y%3D'55'%20text-anchor%3D'middle'%20fill%3D'white'%20font-size%3D'20'%20font-family%3D'sans-serif'%3E%E2%82%B9%3C%2Ftext%3E%3C%2Fsvg%3E%22%2C%22sizes%22%3A%22100x100%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D">
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color:#333; padding:1rem; max-width:900px; margin:0 auto; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color:#333; padding:1rem; max-width:1000px; margin:0 auto; }
     h1 { font-weight:600; color:#2c3e50; }
     .tabs { display:flex; gap:0.5rem; margin:1.5rem 0 1rem; flex-wrap:wrap; }
     .tab { padding:0.5rem 1.2rem; border-radius:8px; background:#e0e0e0; border:none; cursor:pointer; font-size:0.95rem; transition:0.2s; }
@@ -40,18 +39,22 @@
     .progress-fill { height:100%; background:#27ae60; border-radius:4px; transition:width 0.3s; }
     .check-item { display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; }
     canvas { max-width:100%; }
-    .sync-status { display:flex; align-items:center; gap:1rem; padding:0.5rem 1rem; background:#e8f5e9; border-radius:8px; margin-bottom:1rem; }
+    .sync-status { display:flex; align-items:center; gap:1rem; padding:0.5rem 1rem; background:#e8f5e9; border-radius:8px; margin-bottom:1rem; flex-wrap:wrap; }
     .sync-status .status-text { flex:1; }
-    .sync-status .status-dot { width:12px; height:12px; border-radius:50%; background:#4caf50; }
+    .sync-status .status-dot { width:12px; height:12px; border-radius:50%; background:#4caf50; display:inline-block; }
     .sync-status .status-dot.disconnected { background:#f44336; }
     .sync-actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
-    .hidden { display:none; }
+    .hidden { display:none !important; }
+    .category-tag { display:inline-block; background:#ecf0f1; border-radius:12px; padding:0.2rem 0.6rem; font-size:0.75rem; margin-right:0.3rem; }
+    .category-tag.expense { background:#fde8e8; color:#c0392b; }
+    .category-tag.income { background:#e8f8e8; color:#27ae60; }
+    .category-tag.transfer { background:#fef9e7; color:#f39c12; }
   </style>
 </head>
 <body>
   <h1>💰 My FinTrack</h1>
 
-  <!-- Sync Status Bar -->
+  <!-- Sync Status Bar (Google Drive) -->
   <div class="sync-status" id="syncStatus">
     <span class="status-dot disconnected" id="syncDot"></span>
     <span class="status-text" id="syncText">Not connected to Google Drive</span>
@@ -63,30 +66,56 @@
     </div>
   </div>
 
+  <!-- Tabs -->
   <div class="tabs">
-    <button class="tab active" data-panel="dashboard">Dashboard</button>
-    <button class="tab" data-panel="expenses">Daily Expenses</button>
-    <button class="tab" data-panel="chores">Chores</button>
-    <button class="tab" data-panel="savingsCheck">Savings Checklist</button>
-    <button class="tab" data-panel="goals">Future Goals</button>
+    <button class="tab active" data-panel="dashboard">📊 Dashboard</button>
+    <button class="tab" data-panel="expenses">💸 Expenses</button>
+    <button class="tab" data-panel="chores">✅ Chores</button>
+    <button class="tab" data-panel="savingsCheck">🇮🇳 Savings Checklist</button>
+    <button class="tab" data-panel="goals">🎯 Future Goals</button>
+    <button class="tab" data-panel="manage">⚙️ Manage</button>
   </div>
 
+  <!-- ======================== PANELS ======================== -->
+
+  <!-- DASHBOARD -->
   <div id="dashboard" class="panel active">
     <div class="grid2" id="summaryCards"></div>
     <div class="card" style="margin-top:1rem;">
       <h3 style="margin-bottom:0.5rem;">Monthly Income vs Expense</h3>
       <canvas id="trendChart" height="200"></canvas>
     </div>
+    <!-- Net Worth Prediction -->
+    <div class="card">
+      <h3>📈 Net Worth Prediction</h3>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:end;">
+        <div>
+          <label>Monthly Savings</label>
+          <input type="number" id="predMonthlySavings" step="100" value="0" style="width:140px;">
+        </div>
+        <div>
+          <label>Annual Growth Rate (%)</label>
+          <input type="number" id="predGrowthRate" step="0.5" value="8" style="width:120px;">
+        </div>
+        <div>
+          <label>Target Net Worth</label>
+          <input type="number" id="predTarget" step="1000" placeholder="Optional" style="width:140px;">
+        </div>
+        <button onclick="updatePrediction()">Update Prediction</button>
+        <button onclick="autoFillSavings()">Auto-fill Savings</button>
+      </div>
+      <canvas id="predictionChart" height="150"></canvas>
+      <div id="predictionSummary" style="margin-top:0.5rem; font-size:0.95rem;"></div>
+    </div>
   </div>
 
+  <!-- EXPENSES -->
   <div id="expenses" class="panel">
     <div class="card">
       <h3>Add Expense</h3>
       <form id="expenseForm">
         <input type="date" id="expDate" required>
-        <select id="expCategory">
-          <option>Food</option><option>Transport</option><option>Bills</option><option>Entertainment</option><option>Shopping</option><option>Health</option><option>Other</option>
-        </select>
+        <select id="expCategory"></select>
         <input type="number" id="expAmount" placeholder="Amount" step="0.01" required>
         <input type="text" id="expNote" placeholder="Note (optional)">
         <button type="submit">+ Add</button>
@@ -98,6 +127,7 @@
       <h3>Add Income</h3>
       <form id="incomeForm">
         <input type="date" id="incDate" required>
+        <select id="incCategory"></select>
         <input type="number" id="incAmount" placeholder="Amount" step="0.01" required>
         <input type="text" id="incSource" placeholder="Source">
         <button type="submit">+ Add</button>
@@ -105,6 +135,7 @@
     </div>
   </div>
 
+  <!-- CHORES -->
   <div id="chores" class="panel">
     <div class="card">
       <h3>Daily Chores</h3>
@@ -116,6 +147,7 @@
     </div>
   </div>
 
+  <!-- SAVINGS CHECKLIST -->
   <div id="savingsCheck" class="panel">
     <div class="card">
       <h3>Indian Personal Finance & Government Scheme Checklist</h3>
@@ -124,6 +156,7 @@
     </div>
   </div>
 
+  <!-- FUTURE GOALS -->
   <div id="goals" class="panel">
     <div class="card">
       <h3>Future Savings Goals</h3>
@@ -138,12 +171,39 @@
     </div>
   </div>
 
+  <!-- MANAGE -->
+  <div id="manage" class="panel">
+    <div class="card">
+      <h3>📂 Manage Categories</h3>
+      <form id="categoryForm">
+        <input type="text" id="newCategoryName" placeholder="Category name" required>
+        <select id="categoryType">
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+          <option value="transfer">Transfer (neutral)</option>
+        </select>
+        <button type="submit">+ Add Category</button>
+      </form>
+      <ul id="categoryList"></ul>
+      <p style="font-size:0.85rem; color:#666; margin-top:0.5rem;">💡 Transfer categories (e.g., "Transfer", "Investment") don't affect net worth.</p>
+      <hr style="margin:1rem 0;">
+      <h3>📦 Local JSON Backup</h3>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button onclick="exportData()" style="background:#27ae60;">📤 Export JSON Backup</button>
+        <button onclick="importData()" style="background:#2980b9;">📥 Import JSON Backup</button>
+        <button onclick="exportCSV()" style="background:#f39c12;">📊 Export Expenses CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== SCRIPT ======================== -->
   <script>
     // ============================================
-    // GOOGLE DRIVE SYNC CONFIGURATION
+    // GOOGLE DRIVE CONFIG (replace with your credentials)
+    // MUST restrict API key to your domain!
     // ============================================
-    const CLIENT_ID = '7234053629-97gi8g46g600dadhsqr3krcarsmvl961.apps.googleusercontent.com'; // Replace with your Client ID
-    const API_KEY = 'AIzaSyDvN_YfLyUQN1Zt6-5bQ77cuy98EYuAd-4'; // Replace with your API Key
+    const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+    const API_KEY = 'YOUR_GOOGLE_API_KEY'; // Restrict to your domain
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
     const SCOPES = 'https://www.googleapis.com/auth/drive.file';
     const FILE_NAME = 'fintrack_backup.json';
@@ -155,376 +215,208 @@
     let isAuthenticated = false;
 
     // ============================================
-    // GOOGLE DRIVE API INITIALIZATION
+    // LOCAL STORAGE HELPERS
     // ============================================
-    function gapiLoaded() {
-      gapi.load('client', initializeGapiClient);
-    }
-
-    async function initializeGapiClient() {
-      await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: [DISCOVERY_DOC],
-      });
-      gapiInited = true;
-      maybeEnableButtons();
-    }
-
-    function gisLoaded() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: '', // defined later
-      });
-      gisInited = true;
-      maybeEnableButtons();
-    }
-
-    function maybeEnableButtons() {
-      if (gapiInited && gisInited) {
-        checkAuthStatus();
-      }
-    }
-
-    // ============================================
-    // AUTHENTICATION
-    // ============================================
-    function checkAuthStatus() {
-      const token = localStorage.getItem('google_token');
-      if (token) {
-        gapi.client.setToken({ access_token: token });
-        isAuthenticated = true;
-        updateUIForAuth(true);
-        document.getElementById('syncBtn').classList.remove('hidden');
-        document.getElementById('restoreBtn').classList.remove('hidden');
-        document.getElementById('signOutBtn').classList.remove('hidden');
-        document.getElementById('authBtn').textContent = '✅ Connected';
-        document.getElementById('syncDot').className = 'status-dot';
-        document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
-      } else {
-        isAuthenticated = false;
-        updateUIForAuth(false);
-      }
-    }
-
-    function authenticate() {
-      if (!isAuthenticated) {
-        tokenClient.callback = async (resp) => {
-          if (resp.error !== undefined) {
-            throw (resp);
-          }
-          localStorage.setItem('google_token', resp.access_token);
-          isAuthenticated = true;
-          updateUIForAuth(true);
-          document.getElementById('syncBtn').classList.remove('hidden');
-          document.getElementById('restoreBtn').classList.remove('hidden');
-          document.getElementById('signOutBtn').classList.remove('hidden');
-          document.getElementById('authBtn').textContent = '✅ Connected';
-          document.getElementById('syncDot').className = 'status-dot';
-          document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
-        };
-
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      } else {
-        alert('Already connected!');
-      }
-    }
-
-    function signOut() {
-      localStorage.removeItem('google_token');
-      gapi.client.setToken(null);
-      isAuthenticated = false;
-      updateUIForAuth(false);
-      document.getElementById('syncBtn').classList.add('hidden');
-      document.getElementById('restoreBtn').classList.add('hidden');
-      document.getElementById('signOutBtn').classList.add('hidden');
-      document.getElementById('authBtn').textContent = '🔑 Connect Google Drive';
-      document.getElementById('syncDot').className = 'status-dot disconnected';
-      document.getElementById('syncText').textContent = 'Not connected to Google Drive';
-    }
-
-    function updateUIForAuth(authenticated) {
-      // UI updates handled in functions above
-    }
-
-    // ============================================
-    // GOOGLE DRIVE OPERATIONS
-    // ============================================
-    async function syncToDrive() {
-      if (!isAuthenticated) {
-        alert('Please connect to Google Drive first!');
-        return;
-      }
-
-      try {
-        document.getElementById('syncBtn').textContent = '⏳ Syncing...';
-        document.getElementById('syncBtn').disabled = true;
-
-        // Get all data
-        const data = getAllData();
-
-        // Check if file exists
-        const fileId = await findFileInDrive(FILE_NAME);
-
-        if (fileId) {
-          // Update existing file
-          await updateFile(fileId, data);
-        } else {
-          // Check for FinTrack folder or create it
-          const folderId = await getOrCreateFolder(FOLDER_NAME);
-          // Create new file
-          await createFileInDrive(data, folderId);
-        }
-
-        document.getElementById('syncBtn').textContent = '☁️ Backup to Drive';
-        document.getElementById('syncBtn').disabled = false;
-        document.getElementById('syncText').textContent = '✅ Synced successfully!';
-        setTimeout(() => {
-          document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
-        }, 3000);
-        alert('✅ Data backed up successfully to Google Drive!');
-
-      } catch (error) {
-        console.error('Sync error:', error);
-        document.getElementById('syncBtn').textContent = '☁️ Backup to Drive';
-        document.getElementById('syncBtn').disabled = false;
-        alert('❌ Failed to sync: ' + error.message);
-      }
-    }
-
-    async function restoreFromDrive() {
-      if (!isAuthenticated) {
-        alert('Please connect to Google Drive first!');
-        return;
-      }
-
-      try {
-        document.getElementById('restoreBtn').textContent = '⏳ Restoring...';
-        document.getElementById('restoreBtn').disabled = true;
-
-        const fileId = await findFileInDrive(FILE_NAME);
-        if (!fileId) {
-          alert('No backup found in Google Drive. Please backup first.');
-          document.getElementById('restoreBtn').textContent = '📥 Restore from Drive';
-          document.getElementById('restoreBtn').disabled = false;
-          return;
-        }
-
-        // Download file content
-        const response = await gapi.client.drive.files.get({
-          fileId: fileId,
-          alt: 'media',
-        });
-
-        const data = response.result;
-
-        // Restore data
-        restoreData(data);
-
-        document.getElementById('restoreBtn').textContent = '📥 Restore from Drive';
-        document.getElementById('restoreBtn').disabled = false;
-        document.getElementById('syncText').textContent = '✅ Restored successfully!';
-        setTimeout(() => {
-          document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
-        }, 3000);
-        alert('✅ Data restored successfully from Google Drive!');
-        renderAll();
-
-      } catch (error) {
-        console.error('Restore error:', error);
-        document.getElementById('restoreBtn').textContent = '📥 Restore from Drive';
-        document.getElementById('restoreBtn').disabled = false;
-        alert('❌ Failed to restore: ' + error.message);
-      }
-    }
-
-    // ============================================
-    // DRIVE HELPER FUNCTIONS
-    // ============================================
-    async function findFileInDrive(name) {
-      try {
-        const response = await gapi.client.drive.files.list({
-          q: `name='${name}' and trashed=false`,
-          fields: 'files(id, name)',
-          spaces: 'drive',
-        });
-
-        const files = response.result.files;
-        if (files && files.length > 0) {
-          return files[0].id;
-        }
-        return null;
-      } catch (error) {
-        console.error('Error finding file:', error);
-        return null;
-      }
-    }
-
-    async function getOrCreateFolder(folderName) {
-      try {
-        // Search for existing folder
-        const response = await gapi.client.drive.files.list({
-          q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-          fields: 'files(id, name)',
-          spaces: 'drive',
-        });
-
-        const files = response.result.files;
-        if (files && files.length > 0) {
-          return files[0].id;
-        }
-
-        // Create folder if it doesn't exist
-        const fileMetadata = {
-          name: folderName,
-          mimeType: 'application/vnd.google-apps.folder',
-        };
-        const createResponse = await gapi.client.drive.files.create({
-          resource: fileMetadata,
-          fields: 'id',
-        });
-        return createResponse.result.id;
-
-      } catch (error) {
-        console.error('Error creating folder:', error);
-        throw error;
-      }
-    }
-
-    async function createFileInDrive(data, folderId) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const metadata = {
-        name: FILE_NAME,
-        parents: [folderId],
-      };
-
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', blob);
-
-      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + gapi.client.getToken().access_token,
-        },
-        body: form,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create file: ' + response.statusText);
-      }
-
-      return await response.json();
-    }
-
-    async function updateFile(fileId, data) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-
-      const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': 'Bearer ' + gapi.client.getToken().access_token,
-        },
-        body: blob,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update file: ' + response.statusText);
-      }
-
-      return await response.json();
-    }
-
-    // ============================================
-    // DATA MANAGEMENT
-    // ============================================
-    function getAllData() {
-      return {
-        expenses: loadData(STORAGE_KEYS.expenses, []),
-        income: loadData(STORAGE_KEYS.income, []),
-        chores: loadData(STORAGE_KEYS.chores, []),
-        criteria: loadData(STORAGE_KEYS.criteria, DEFAULT_CRITERIA),
-        goals: loadData(STORAGE_KEYS.goals, []),
-        syncDate: new Date().toISOString(),
-        appVersion: '1.0.0'
-      };
-    }
-
-    function restoreData(data) {
-      if (data.expenses) {
-        saveData(STORAGE_KEYS.expenses, data.expenses);
-        expenses = data.expenses;
-      }
-      if (data.income) {
-        saveData(STORAGE_KEYS.income, data.income);
-        incomeEntries = data.income;
-      }
-      if (data.chores) {
-        saveData(STORAGE_KEYS.chores, data.chores);
-        chores = data.chores;
-      }
-      if (data.criteria) {
-        saveData(STORAGE_KEYS.criteria, data.criteria);
-        criteria = data.criteria;
-      }
-      if (data.goals) {
-        saveData(STORAGE_KEYS.goals, data.goals);
-        goals = data.goals;
-      }
-    }
-
-    // ============================================
-    // LOCAL STORAGE HELPERS (Existing Code)
-    // ============================================
-    const STORAGE_KEYS = {
-      expenses: 'ft_expenses',
-      income: 'ft_income',
-      chores: 'ft_chores',
-      criteria: 'ft_criteria',
-      goals: 'ft_goals'
-    };
-
     function loadData(key, fallback) {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     }
-
     function saveData(key, data) {
       localStorage.setItem(key, JSON.stringify(data));
     }
 
-    const DEFAULT_CRITERIA = [
-      { id:1, name:'Emergency Fund (6 months expenses)', achieved: false, target: 0, current:0 },
-      { id:2, name:'Health Insurance (family floater)', achieved: false, target: 1, current:0 },
-      { id:3, name:'Term Life Insurance', achieved: false, target: 1, current:0 },
-      { id:4, name:'PPF Account (Public Provident Fund)', achieved: false, target: 1, current:0 },
-      { id:5, name:'NPS (National Pension System)', achieved: false, target: 1, current:0 },
-      { id:6, name:'Sukanya Samriddhi Yojana (if applicable)', achieved: false, target: 1, current:0 },
-      { id:7, name:'Atal Pension Yojana', achieved: false, target: 1, current:0 },
-      { id:8, name:'Pradhan Mantri Jeevan Jyoti Bima Yojana', achieved: false, target: 1, current:0 },
-      { id:9, name:'Pradhan Mantri Suraksha Bima Yojana', achieved: false, target: 1, current:0 },
-      { id:10, name:'Fixed Deposit / Debt fund for short-term goals', achieved: false, target: 1, current:0 }
-    ];
-
-    let expenses = loadData(STORAGE_KEYS.expenses, []);
-    let incomeEntries = loadData(STORAGE_KEYS.income, []);
-    let chores = loadData(STORAGE_KEYS.chores, []);
-    let criteria = loadData(STORAGE_KEYS.criteria, DEFAULT_CRITERIA);
-    let goals = loadData(STORAGE_KEYS.goals, []);
+    // ============================================
+    // DEFAULT CATEGORIES
+    // ============================================
+    const DEFAULT_CATEGORIES = {
+      expense: ['Bills', 'EMI', 'Entertainment', 'Food & Drinks', 'Fuel', 'Groceries', 'Health', 'Shopping', 'Travel', 'Other'],
+      income: ['Salary', 'Freelance', 'Investment Income', 'Gift', 'Other'],
+      transfer: ['Transfer', 'Investment']
+    };
 
     // ============================================
-    // UI RENDERING (Existing Code)
+    // INIT DATA
     // ============================================
-    function renderAll() {
-      renderDashboard();
-      renderExpenses();
-      renderChores();
-      renderCriteria();
-      renderGoals();
+    let expenses = loadData('ft_expenses', []);
+    let incomeEntries = loadData('ft_income', []);
+    let chores = loadData('ft_chores', []);
+    let criteria = loadData('ft_criteria', [
+      { id:1, name:'Emergency Fund (6 months expenses)', achieved: false },
+      { id:2, name:'Health Insurance (family floater)', achieved: false },
+      { id:3, name:'Term Life Insurance', achieved: false },
+      { id:4, name:'PPF Account (Public Provident Fund)', achieved: false },
+      { id:5, name:'NPS (National Pension System)', achieved: false },
+      { id:6, name:'Sukanya Samriddhi Yojana (if applicable)', achieved: false },
+      { id:7, name:'Atal Pension Yojana', achieved: false },
+      { id:8, name:'Pradhan Mantri Jeevan Jyoti Bima Yojana', achieved: false },
+      { id:9, name:'Pradhan Mantri Suraksha Bima Yojana', achieved: false },
+      { id:10, name:'Fixed Deposit / Debt fund for short-term goals', achieved: false }
+    ]);
+    let goals = loadData('ft_goals', []);
+    let categories = loadData('ft_categories', DEFAULT_CATEGORIES);
+
+    // ============================================
+    // CATEGORY FUNCTIONS
+    // ============================================
+    function getCategoryType(name) {
+      if (categories.expense.includes(name)) return 'expense';
+      if (categories.income.includes(name)) return 'income';
+      if (categories.transfer.includes(name)) return 'transfer';
+      return null;
     }
 
-    // --- Dashboard ---
-    let trendChart;
+    function getAllCategoryNames() {
+      return [...categories.expense, ...categories.income, ...categories.transfer];
+    }
+
+    function addCategory(name, type) {
+      name = name.trim();
+      if (!name) return false;
+      if (getCategoryType(name)) { alert('Category already exists!'); return false; }
+      if (!categories[type]) categories[type] = [];
+      categories[type].push(name);
+      saveData('ft_categories', categories);
+      renderCategories();
+      populateDropdowns();
+      return true;
+    }
+
+    function deleteCategory(name) {
+      if (!confirm(`Delete category "${name}"?`)) return;
+      const type = getCategoryType(name);
+      if (!type) return;
+      categories[type] = categories[type].filter(c => c !== name);
+      saveData('ft_categories', categories);
+      renderCategories();
+      populateDropdowns();
+    }
+
+    function renderCategories() {
+      const list = document.getElementById('categoryList');
+      let html = '';
+      // Expense
+      html += `<li style="font-weight:bold; color:#2c3e50;">💸 Expense</li>`;
+      categories.expense.forEach(c => {
+        html += `<li><span>${c}</span><button onclick="deleteCategory('${c}')" style="background:#c0392b; padding:0.2rem 0.6rem;">✕</button></li>`;
+      });
+      html += `<li style="font-weight:bold; color:#27ae60;">💰 Income</li>`;
+      categories.income.forEach(c => {
+        html += `<li><span>${c}</span><button onclick="deleteCategory('${c}')" style="background:#c0392b; padding:0.2rem 0.6rem;">✕</button></li>`;
+      });
+      html += `<li style="font-weight:bold; color:#f39c12;">🔄 Transfer (neutral)</li>`;
+      categories.transfer.forEach(c => {
+        html += `<li><span>${c}</span><button onclick="deleteCategory('${c}')" style="background:#c0392b; padding:0.2rem 0.6rem;">✕</button></li>`;
+      });
+      list.innerHTML = html;
+    }
+
+    function populateDropdowns() {
+      const expSelect = document.getElementById('expCategory');
+      const incSelect = document.getElementById('incCategory');
+      if (expSelect) {
+        const current = expSelect.value;
+        expSelect.innerHTML = categories.expense.map(c => `<option>${c}</option>`).join('');
+        if (categories.expense.includes(current)) expSelect.value = current;
+      }
+      if (incSelect) {
+        const current = incSelect.value;
+        incSelect.innerHTML = categories.income.map(c => `<option>${c}</option>`).join('');
+        if (categories.income.includes(current)) incSelect.value = current;
+      }
+    }
+
+    // ============================================
+    // NET WORTH & PREDICTION
+    // ============================================
+    function getNetWorth() {
+      const totalExp = expenses
+        .filter(e => getCategoryType(e.category) !== 'transfer')
+        .reduce((s,e) => s + parseFloat(e.amount), 0);
+      const totalInc = incomeEntries
+        .filter(e => getCategoryType(e.category) !== 'transfer')
+        .reduce((s,e) => s + parseFloat(e.amount), 0);
+      return totalInc - totalExp;
+    }
+
+    let predictionChart = null;
+    function updatePrediction() {
+      const currentNetWorth = getNetWorth();
+      const monthlySavings = parseFloat(document.getElementById('predMonthlySavings').value) || 0;
+      const annualGrowth = parseFloat(document.getElementById('predGrowthRate').value) || 0;
+      const target = parseFloat(document.getElementById('predTarget').value) || 0;
+
+      const months = 60;
+      const labels = [];
+      const projected = [];
+      let value = currentNetWorth;
+      const monthlyRate = annualGrowth / 100 / 12;
+      for (let i = 0; i <= months; i++) {
+        if (i > 0) value = value * (1 + monthlyRate) + monthlySavings;
+        labels.push(`M${i}`);
+        projected.push(Math.round(value));
+      }
+
+      const ctx = document.getElementById('predictionChart').getContext('2d');
+      if (predictionChart) predictionChart.destroy();
+      predictionChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Projected Net Worth',
+            data: projected,
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52,152,219,0.1)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => '₹' + ctx.parsed.y.toLocaleString() } } },
+          scales: { y: { beginAtZero: false, ticks: { callback: v => '₹' + v.toLocaleString() } } }
+        }
+      });
+
+      const finalValue = projected[projected.length - 1];
+      const summary = document.getElementById('predictionSummary');
+      let html = `<strong>Current Net Worth:</strong> ₹${currentNetWorth.toLocaleString()}<br>`;
+      html += `<strong>Projected after 5 years:</strong> ₹${finalValue.toLocaleString()}`;
+      if (target > 0) {
+        let val = currentNetWorth;
+        let monthsToTarget = 0;
+        while (val < target && monthsToTarget < 20*12) {
+          val = val * (1 + monthlyRate) + monthlySavings;
+          monthsToTarget++;
+        }
+        if (val >= target) html += `<br><strong>Target ₹${target.toLocaleString()} reached in:</strong> ${(monthsToTarget/12).toFixed(1)} years`;
+        else html += `<br><strong>Target not reached within 20 years.</strong>`;
+      }
+      summary.innerHTML = html;
+    }
+
+    function autoFillSavings() {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const monthlyExp = expenses.filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      }).reduce((s,e) => s + parseFloat(e.amount), 0);
+      const monthlyInc = incomeEntries.filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      }).reduce((s,e) => s + parseFloat(e.amount), 0);
+      const savings = monthlyInc - monthlyExp;
+      document.getElementById('predMonthlySavings').value = Math.max(0, savings);
+      updatePrediction();
+    }
+
+    // ============================================
+    // RENDER ALL
+    // ============================================
+    let trendChart = null;
+
     function renderDashboard() {
       const now = new Date();
       const currentMonth = now.getMonth();
@@ -540,17 +432,16 @@
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
       }).reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
-      const totalExp = expenses.reduce((s,e) => s + parseFloat(e.amount), 0);
-      const totalInc = incomeEntries.reduce((s,e) => s + parseFloat(e.amount), 0);
-      const net = totalInc - totalExp;
+      const netWorth = getNetWorth();
 
       document.getElementById('summaryCards').innerHTML = `
         <div class="stat"><div class="label">Month Income</div><div class="value">₹${monthlyIncome.toLocaleString()}</div></div>
         <div class="stat"><div class="label">Month Expenses</div><div class="value">₹${monthlyExpenses.toLocaleString()}</div></div>
         <div class="stat"><div class="label">Month Savings</div><div class="value">₹${(monthlyIncome-monthlyExpenses).toLocaleString()}</div></div>
-        <div class="stat"><div class="label">Net Worth</div><div class="value">₹${net.toLocaleString()}</div></div>
+        <div class="stat"><div class="label">Net Worth</div><div class="value">₹${netWorth.toLocaleString()}</div></div>
       `;
 
+      // Trend chart (6 months)
       const months = [];
       const incomeByMonth = [];
       const expenseByMonth = [];
@@ -558,9 +449,7 @@
         const d = new Date(currentYear, currentMonth - i, 1);
         const m = d.getMonth();
         const y = d.getFullYear();
-        const monthLabel = d.toLocaleString('default', { month:'short', year:'numeric' });
-        months.push(monthLabel);
-
+        months.push(d.toLocaleString('default', { month:'short', year:'numeric' }));
         const inc = incomeEntries.filter(e => {
           const dt = new Date(e.date);
           return dt.getMonth() === m && dt.getFullYear() === y;
@@ -590,9 +479,13 @@
           scales: { y: { beginAtZero: true, ticks: { callback: v => '₹'+v } } }
         }
       });
+
+      // Update prediction if visible
+      if (document.getElementById('dashboard').classList.contains('active')) {
+        updatePrediction();
+      }
     }
 
-    // --- Expenses ---
     function renderExpenses() {
       const list = document.getElementById('expenseList');
       const sorted = [...expenses].sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -604,44 +497,6 @@
       `).join('');
     }
 
-    window.deleteExpense = function(id) {
-      expenses = expenses.filter(e => e.id !== id);
-      saveData(STORAGE_KEYS.expenses, expenses);
-      renderAll();
-    };
-
-    document.getElementById('expenseForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const exp = {
-        id: Date.now().toString(),
-        date: document.getElementById('expDate').value,
-        category: document.getElementById('expCategory').value,
-        amount: parseFloat(document.getElementById('expAmount').value),
-        note: document.getElementById('expNote').value
-      };
-      expenses.push(exp);
-      saveData(STORAGE_KEYS.expenses, expenses);
-      this.reset();
-      document.getElementById('expDate').value = new Date().toISOString().slice(0,10);
-      renderAll();
-    });
-
-    document.getElementById('incomeForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const inc = {
-        id: Date.now().toString(),
-        date: document.getElementById('incDate').value,
-        amount: parseFloat(document.getElementById('incAmount').value),
-        source: document.getElementById('incSource').value
-      };
-      incomeEntries.push(inc);
-      saveData(STORAGE_KEYS.income, incomeEntries);
-      this.reset();
-      document.getElementById('incDate').value = new Date().toISOString().slice(0,10);
-      renderAll();
-    });
-
-    // --- Chores ---
     function renderChores() {
       const list = document.getElementById('choreList');
       list.innerHTML = chores.map(c => `
@@ -652,31 +507,6 @@
       `).join('');
     }
 
-    window.toggleChore = function(id) {
-      const chore = chores.find(c => c.id === id);
-      if (chore) { chore.done = !chore.done; }
-      saveData(STORAGE_KEYS.chores, chores);
-      renderChores();
-    };
-
-    window.deleteChore = function(id) {
-      chores = chores.filter(c => c.id !== id);
-      saveData(STORAGE_KEYS.chores, chores);
-      renderChores();
-    };
-
-    document.getElementById('choreForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const task = document.getElementById('choreInput').value.trim();
-      if (task) {
-        chores.push({ id: Date.now().toString(), task, done: false });
-        saveData(STORAGE_KEYS.chores, chores);
-        document.getElementById('choreInput').value = '';
-        renderChores();
-      }
-    });
-
-    // --- Savings Criteria ---
     function renderCriteria() {
       const container = document.getElementById('criteriaList');
       container.innerHTML = criteria.map(c => `
@@ -690,14 +520,6 @@
       `).join('');
     }
 
-    window.toggleCriteria = function(id) {
-      const item = criteria.find(c => c.id == id);
-      if (item) { item.achieved = !item.achieved; }
-      saveData(STORAGE_KEYS.criteria, criteria);
-      renderCriteria();
-    };
-
-    // --- Goals ---
     function renderGoals() {
       const list = document.getElementById('goalList');
       list.innerHTML = goals.map(g => {
@@ -719,22 +541,102 @@
       }).join('');
     }
 
+    function renderAll() {
+      renderDashboard();
+      renderExpenses();
+      renderChores();
+      renderCriteria();
+      renderGoals();
+      renderCategories();
+      populateDropdowns();
+    }
+
+    // ============================================
+    // DELETE FUNCTIONS (window exposed)
+    // ============================================
+    window.deleteExpense = function(id) {
+      expenses = expenses.filter(e => e.id !== id);
+      saveData('ft_expenses', expenses);
+      renderAll();
+    };
+    window.deleteChore = function(id) {
+      chores = chores.filter(c => c.id !== id);
+      saveData('ft_chores', chores);
+      renderAll();
+    };
+    window.toggleChore = function(id) {
+      const chore = chores.find(c => c.id === id);
+      if (chore) chore.done = !chore.done;
+      saveData('ft_chores', chores);
+      renderChores();
+    };
+    window.toggleCriteria = function(id) {
+      const item = criteria.find(c => c.id == id);
+      if (item) item.achieved = !item.achieved;
+      saveData('ft_criteria', criteria);
+      renderCriteria();
+    };
     window.updateGoal = function(id) {
       const input = document.getElementById(`update-${id}`);
       const val = parseFloat(input.value);
       if (!isNaN(val)) {
         const goal = goals.find(g => g.id === id);
-        if (goal) { goal.current = val; }
-        saveData(STORAGE_KEYS.goals, goals);
+        if (goal) goal.current = val;
+        saveData('ft_goals', goals);
         renderGoals();
       }
     };
-
     window.deleteGoal = function(id) {
       goals = goals.filter(g => g.id !== id);
-      saveData(STORAGE_KEYS.goals, goals);
+      saveData('ft_goals', goals);
       renderGoals();
     };
+
+    // ============================================
+    // EXPENSE & INCOME FORMS
+    // ============================================
+    document.getElementById('expenseForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const exp = {
+        id: Date.now().toString(),
+        date: document.getElementById('expDate').value,
+        category: document.getElementById('expCategory').value,
+        amount: parseFloat(document.getElementById('expAmount').value),
+        note: document.getElementById('expNote').value
+      };
+      expenses.push(exp);
+      saveData('ft_expenses', expenses);
+      this.reset();
+      document.getElementById('expDate').value = new Date().toISOString().slice(0,10);
+      renderAll();
+    });
+
+    document.getElementById('incomeForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const inc = {
+        id: Date.now().toString(),
+        date: document.getElementById('incDate').value,
+        category: document.getElementById('incCategory').value || 'Other',
+        amount: parseFloat(document.getElementById('incAmount').value),
+        source: document.getElementById('incSource').value
+      };
+      incomeEntries.push(inc);
+      saveData('ft_income', incomeEntries);
+      this.reset();
+      document.getElementById('incDate').value = new Date().toISOString().slice(0,10);
+      renderAll();
+    });
+
+    document.getElementById('choreForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const task = document.getElementById('choreInput').value.trim();
+      if (task) {
+        chores.push({ id: Date.now().toString(), task, done: false });
+        saveData('ft_chores', chores);
+        document.getElementById('choreInput').value = '';
+        renderChores();
+      }
+    });
 
     document.getElementById('goalForm').addEventListener('submit', function(e) {
       e.preventDefault();
@@ -746,10 +648,269 @@
         deadline: document.getElementById('goalDeadline').value
       };
       goals.push(goal);
-      saveData(STORAGE_KEYS.goals, goals);
+      saveData('ft_goals', goals);
       this.reset();
       renderGoals();
     });
+
+    // Category form
+    document.getElementById('categoryForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const name = document.getElementById('newCategoryName').value.trim();
+      const type = document.getElementById('categoryType').value;
+      if (addCategory(name, type)) {
+        this.reset();
+        renderAll();
+      }
+    });
+
+    // ============================================
+    // LOCAL JSON BACKUP
+    // ============================================
+    function getAllData() {
+      return {
+        expenses: loadData('ft_expenses', []),
+        income: loadData('ft_income', []),
+        chores: loadData('ft_chores', []),
+        criteria: loadData('ft_criteria', []),
+        goals: loadData('ft_goals', []),
+        categories: loadData('ft_categories', DEFAULT_CATEGORIES),
+        exportDate: new Date().toISOString()
+      };
+    }
+
+    function restoreData(data) {
+      if (data.expenses) { saveData('ft_expenses', data.expenses); expenses = data.expenses; }
+      if (data.income) { saveData('ft_income', data.income); incomeEntries = data.income; }
+      if (data.chores) { saveData('ft_chores', data.chores); chores = data.chores; }
+      if (data.criteria) { saveData('ft_criteria', data.criteria); criteria = data.criteria; }
+      if (data.goals) { saveData('ft_goals', data.goals); goals = data.goals; }
+      if (data.categories) { saveData('ft_categories', data.categories); categories = data.categories; }
+      renderAll();
+    }
+
+    window.exportData = function() {
+      const data = getAllData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fintrack_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    window.importData = function() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (!data.expenses && !data.income) throw new Error('Invalid backup file.');
+            if (confirm('⚠️ This will OVERWRITE all current data. Continue?')) {
+              restoreData(data);
+              alert('✅ Data restored successfully!');
+            }
+          } catch (err) {
+            alert('❌ Failed to import: ' + err.message);
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    };
+
+    window.exportCSV = function() {
+      if (expenses.length === 0) { alert('No expenses to export.'); return; }
+      let csv = 'Date,Category,Amount,Note\n';
+      expenses.forEach(e => {
+        csv += `${e.date},${e.category},${e.amount},"${e.note||''}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `expenses_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // ============================================
+    // GOOGLE DRIVE SYNC (optional)
+    // ============================================
+    function gapiLoaded() {
+      gapi.load('client', initializeGapiClient);
+    }
+    async function initializeGapiClient() {
+      await gapi.client.init({
+        apiKey: API_KEY,
+        discoveryDocs: [DISCOVERY_DOC],
+      });
+      gapiInited = true;
+      maybeEnableButtons();
+    }
+    function gisLoaded() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: '',
+      });
+      gisInited = true;
+      maybeEnableButtons();
+    }
+    function maybeEnableButtons() {
+      if (gapiInited && gisInited) checkAuthStatus();
+    }
+    function checkAuthStatus() {
+      const token = localStorage.getItem('google_token');
+      if (token) {
+        gapi.client.setToken({ access_token: token });
+        isAuthenticated = true;
+        updateUIForAuth(true);
+        document.getElementById('syncBtn').classList.remove('hidden');
+        document.getElementById('restoreBtn').classList.remove('hidden');
+        document.getElementById('signOutBtn').classList.remove('hidden');
+        document.getElementById('authBtn').textContent = '✅ Connected';
+        document.getElementById('syncDot').className = 'status-dot';
+        document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
+      } else {
+        isAuthenticated = false;
+        updateUIForAuth(false);
+      }
+    }
+    function updateUIForAuth(authenticated) { /* handled above */ }
+    window.authenticate = function() {
+      if (!isAuthenticated) {
+        tokenClient.callback = async (resp) => {
+          if (resp.error !== undefined) throw resp;
+          localStorage.setItem('google_token', resp.access_token);
+          isAuthenticated = true;
+          updateUIForAuth(true);
+          document.getElementById('syncBtn').classList.remove('hidden');
+          document.getElementById('restoreBtn').classList.remove('hidden');
+          document.getElementById('signOutBtn').classList.remove('hidden');
+          document.getElementById('authBtn').textContent = '✅ Connected';
+          document.getElementById('syncDot').className = 'status-dot';
+          document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
+        };
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      } else {
+        alert('Already connected!');
+      }
+    };
+    window.signOut = function() {
+      localStorage.removeItem('google_token');
+      gapi.client.setToken(null);
+      isAuthenticated = false;
+      updateUIForAuth(false);
+      document.getElementById('syncBtn').classList.add('hidden');
+      document.getElementById('restoreBtn').classList.add('hidden');
+      document.getElementById('signOutBtn').classList.add('hidden');
+      document.getElementById('authBtn').textContent = '🔑 Connect Google Drive';
+      document.getElementById('syncDot').className = 'status-dot disconnected';
+      document.getElementById('syncText').textContent = 'Not connected to Google Drive';
+    };
+
+    async function findFileInDrive(name) {
+      const response = await gapi.client.drive.files.list({
+        q: `name='${name}' and trashed=false`,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+      });
+      const files = response.result.files;
+      return files && files.length > 0 ? files[0].id : null;
+    }
+    async function getOrCreateFolder(folderName) {
+      const response = await gapi.client.drive.files.list({
+        q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+      });
+      const files = response.result.files;
+      if (files && files.length > 0) return files[0].id;
+      const fileMetadata = { name: folderName, mimeType: 'application/vnd.google-apps.folder' };
+      const createResp = await gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
+      return createResp.result.id;
+    }
+    async function createFileInDrive(data, folderId) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const metadata = { name: FILE_NAME, parents: [folderId] };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      form.append('file', blob);
+      const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + gapi.client.getToken().access_token },
+        body: form,
+      });
+      if (!response.ok) throw new Error('Failed to create file');
+      return await response.json();
+    }
+    async function updateFile(fileId, data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+        method: 'PATCH',
+        headers: { 'Authorization': 'Bearer ' + gapi.client.getToken().access_token },
+        body: blob,
+      });
+      if (!response.ok) throw new Error('Failed to update file');
+      return await response.json();
+    }
+
+    window.syncToDrive = async function() {
+      if (!isAuthenticated) { alert('Please connect to Google Drive first!'); return; }
+      try {
+        document.getElementById('syncBtn').textContent = '⏳ Syncing...';
+        document.getElementById('syncBtn').disabled = true;
+        const data = getAllData();
+        const fileId = await findFileInDrive(FILE_NAME);
+        if (fileId) await updateFile(fileId, data);
+        else {
+          const folderId = await getOrCreateFolder(FOLDER_NAME);
+          await createFileInDrive(data, folderId);
+        }
+        document.getElementById('syncBtn').textContent = '☁️ Backup to Drive';
+        document.getElementById('syncBtn').disabled = false;
+        document.getElementById('syncText').textContent = '✅ Synced successfully!';
+        setTimeout(() => {
+          document.getElementById('syncText').textContent = 'Connected to Google Drive ✓';
+        }, 3000);
+        alert('✅ Data backed up to Google Drive.');
+      } catch (error) {
+        console.error(error);
+        document.getElementById('syncBtn').textContent = '☁️ Backup to Drive';
+        document.getElementById('syncBtn').disabled = false;
+        alert('❌ Sync failed: ' + error.message);
+      }
+    };
+
+    window.restoreFromDrive = async function() {
+      if (!isAuthenticated) { alert('Please connect to Google Drive first!'); return; }
+      if (!confirm('⚠️ This will OVERWRITE all current data with the Google Drive backup. Continue?')) return;
+      try {
+        document.getElementById('restoreBtn').textContent = '⏳ Restoring...';
+        document.getElementById('restoreBtn').disabled = true;
+        const fileId = await findFileInDrive(FILE_NAME);
+        if (!fileId) { alert('No backup found in Drive.'); return; }
+        const response = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
+        const data = response.result;
+        if (!data.expenses && !data.income) throw new Error('Invalid backup file.');
+        restoreData(data);
+        document.getElementById('restoreBtn').textContent = '📥 Restore from Drive';
+        document.getElementById('restoreBtn').disabled = false;
+        alert('✅ Data restored from Google Drive.');
+      } catch (error) {
+        console.error(error);
+        document.getElementById('restoreBtn').textContent = '📥 Restore from Drive';
+        document.getElementById('restoreBtn').disabled = false;
+        alert('❌ Restore failed: ' + error.message);
+      }
+    };
 
     // ============================================
     // TAB SWITCHING
@@ -760,28 +921,29 @@
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         this.classList.add('active');
         document.getElementById(this.dataset.panel).classList.add('active');
-        if (this.dataset.panel === 'dashboard') renderDashboard();
+        if (this.dataset.panel === 'dashboard') {
+          renderDashboard();
+          updatePrediction();
+        }
       });
     });
 
     // ============================================
-    // INITIALIZATION
+    // INIT
     // ============================================
-    renderAll();
-
-    const today = new Date().toISOString().slice(0,10);
-    document.getElementById('expDate').value = today;
-    document.getElementById('incDate').value = today;
-
-    // Load Google APIs
     document.addEventListener('DOMContentLoaded', function() {
-      // Load Google API Client
+      renderAll();
+      const today = new Date().toISOString().slice(0,10);
+      document.getElementById('expDate').value = today;
+      document.getElementById('incDate').value = today;
+      // Auto-fill savings and update prediction
+      autoFillSavings();
+
+      // Load Google APIs (for Drive)
       const script1 = document.createElement('script');
       script1.src = 'https://apis.google.com/js/api.js';
       script1.onload = gapiLoaded;
       document.head.appendChild(script1);
-
-      // Load Google Identity Services
       const script2 = document.createElement('script');
       script2.src = 'https://accounts.google.com/gsi/client';
       script2.onload = gisLoaded;
@@ -802,14 +964,10 @@
             'https://accounts.google.com/gsi/client'
           ];
           self.addEventListener('install', e => {
-            e.waitUntil(
-              caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-            );
+            e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
           });
           self.addEventListener('fetch', e => {
-            e.respondWith(
-              caches.match(e.request).then(cached => cached || fetch(e.request))
-            );
+            e.respondWith(caches.match(e.request).then(cached => cached || fetch(e.request)));
           });
         `;
         const blob = new Blob([swCode], {type: 'application/javascript'});

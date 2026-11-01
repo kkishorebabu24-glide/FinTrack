@@ -9,26 +9,64 @@ function parseEmailAlertText(subject = '', body = '', dateReceived = null, email
   if (!fullText) return null;
 
   // 1. Debit vs Credit
+  // Ignore "credit" when part of "credit card", "credit limit", "total credit limit"
+  const textWithoutCreditCard = fullText.replace(/\b(?:credit\s*card|credit\s*limit|total\s*credit(?:\s*limit)?)\b/gi, '');
   let isExpense = true;
-  if (/\b(?:credited|credit|refund|cashback|received\s*from|salary)\b/i.test(fullText)) {
+  if (/\b(?:credited|refund|cashback|received\s*from|salary|deposited)\b/i.test(textWithoutCreditCard)) {
     isExpense = false;
-  } else if (/\b(?:debited|debit|spent|withdrawn|paid|purchase|deducted|upi txn|done a upi)\b/i.test(fullText)) {
+  } else if (/\b(?:debited|debit|spent|withdrawn|paid|purchase|deducted|upi txn|done a upi|transaction amount)\b/i.test(fullText)) {
     isExpense = true;
   }
 
   // 2. Amount Extraction
-  const amtMatch = fullText.match(/(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/i) ||
-                   fullText.match(/\b(?:debited\s*(?:by|with)?|credited\s*(?:by|with)?|spent|withdrawn|paid)\s*(?:by|with|for)?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
-  if (!amtMatch) return null;
-  const amount = parseAmount(amtMatch[1]);
+  let amount = 0;
+  // A. Key-Value style: "Transaction Amount:\nINR 110"
+  const kvAmtMatch = fullText.match(/(?:Transaction\s*Amount|Txn\s*Amount|Amount\s*debited|Amount\s*spent|Amount\s*credited|Amount)[:\s\r\n]+(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if (kvAmtMatch) {
+    amount = parseAmount(kvAmtMatch[1]);
+  }
+
+  // B. Action sentence style (e.g. "for INR 1,499.00", "debited by 150.0", "spent Rs. 3,499")
+  if (!amount) {
+    const actionAmtMatch = fullText.match(/\b(?:debited\s*(?:by|with)?|credited\s*(?:by|with)?|spent|withdrawn|paid|purchase\s*(?:of)?)\s*(?:by|with|for)?\s*(?:INR|Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    if (actionAmtMatch) {
+      amount = parseAmount(actionAmtMatch[1]);
+    }
+  }
+
+  // C. Fallback: match first INR/Rs amount that is NOT an Available Limit, Total Credit Limit, or Balance
+  if (!amount) {
+    const allAmts = Array.from(fullText.matchAll(/(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/gi));
+    for (const m of allAmts) {
+      const idx = m.index;
+      const preceding = fullText.slice(Math.max(0, idx - 45), idx);
+      if (/(?:available\s*limit|total\s*credit\s*limit|credit\s*limit|avail\s*limit|available\s*bal|avail\s*bal|balance|outstanding|due)/i.test(preceding)) {
+        continue; // Skip account balances and credit limits!
+      }
+      const val = parseAmount(m[1]);
+      if (val > 0) {
+        amount = val;
+        break;
+      }
+    }
+  }
+
   if (amount <= 0) return null;
 
   // 3. Date & Time Extraction
   let txnDate = null;
   let txnTime = null;
-  const dateMatch = fullText.match(/\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\b/) ||
-                    fullText.match(/\b(\d{1,2}[\s\-\.][A-Za-z]{3}[\s\-\.]\d{2,4})\b/) ||
-                    fullText.match(/\b(\d{1,2}[A-Za-z]{3}\d{2,4})\b/);
+
+  // Key-value date check: "Date & Time:\n31-10-2026, 17:56:36 IST"
+  const kvDateMatch = fullText.match(/(?:Date\s*(?:&|and)\s*Time|Txn\s*Date|Transaction\s*Date|Date)[:\s\r\n]+([^\r\n]+)/i);
+  const searchDateText = kvDateMatch ? kvDateMatch[1] : fullText;
+
+  const dateMatch = searchDateText.match(/\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\b/) ||
+                    searchDateText.match(/\b(\d{1,2}[\s\-\.][A-Za-z]{3}[\s\-\.]\d{2,4})\b/) ||
+                    searchDateText.match(/\b(\d{1,2}[A-Za-z]{3}\d{2,4})\b/) ||
+                    fullText.match(/\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\b/) ||
+                    fullText.match(/\b(\d{1,2}[\s\-\.][A-Za-z]{3}[\s\-\.]\d{2,4})\b/);
+
   if (dateMatch) {
     txnDate = normalizeDate(dateMatch[1]);
   } else if (dateReceived) {
@@ -37,7 +75,7 @@ function parseEmailAlertText(subject = '', body = '', dateReceived = null, email
     txnDate = new Date().toISOString().slice(0, 10);
   }
 
-  const timeMatch = fullText.match(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/);
+  const timeMatch = searchDateText.match(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/) || fullText.match(/\b(\d{1,2}:\d{2}(?::\d{2})?)\b/);
   if (timeMatch) txnTime = timeMatch[1];
 
   // 4. Ref ID / RRN / UTR / Auth Code Extraction
@@ -49,33 +87,53 @@ function parseEmailAlertText(subject = '', body = '', dateReceived = null, email
 
   // 5. Account or Card identifier
   let accountInfo = '';
-  const acctMatch = fullText.match(/(?:Card|Account|A\/c|Acct)?\s*(?:no\.?)?\s*(?:ending\s*(?:with)?|ending|xx|\*\*)\s*(\d{4})/i);
+  const kvCardMatch = fullText.match(/(?:(?:Axis\s*Bank|HDFC\s*Bank|ICICI\s*Bank|SBI|Kotak|IndusInd)?\s*(?:Credit|Debit)?\s*Card\s*(?:No\.?)?|Account\s*(?:No\.?)?|A\/c\s*(?:No\.?)?)[:\s\r\n]+([A-Za-z0-9\*]+)/i);
+  const acctMatch = kvCardMatch || fullText.match(/(?:Card|Account|A\/c|Acct)?\s*(?:no\.?)?\s*(?:ending\s*(?:with)?|ending|xx|\*\*)\s*([A-Za-z0-9]{4})/i);
   if (acctMatch) {
-    accountInfo = 'ending ' + acctMatch[1];
+    const rawAcct = acctMatch[1].replace(/[^A-Za-z0-9]/g, '');
+    accountInfo = rawAcct.length > 4 ? rawAcct.slice(-4) : rawAcct;
+    if (accountInfo) accountInfo = 'ending ' + accountInfo;
   }
 
   // 6. Merchant / Beneficiary Extraction
   let rawMerchant = '';
-  const atMatch = fullText.match(/\bat\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+on\b|\s+at\s+\d|\.|\n|Available|Auth|Avail)/i);
-  const toMatch = fullText.match(/\b(?:to\s*VPA|transfer\s*to|to)\s+([A-Za-z0-9\.\@\-\s]+?)(?:\s+on\b|\s+Ref\b|\.|\n|Available)/i);
-  const fromMatch = fullText.match(/\b(?:transfer\s*from|received\s*from|from)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\.|\n|UPI|NEFT|Ref|on\b)/i);
-  const towardsMatch = fullText.match(/\btowards\s+([A-Za-z0-9\/\.\-]+?)(?:\.|\n|Available)/i);
-  const infoMatch = fullText.match(/\bInfo:\s*([^\n\r]+)/i);
+  // Key-value check: "Merchant Name:\nAISHWARYA S"
+  const kvMerchantMatch = fullText.match(/(?:Merchant\s*Name|Merchant|Beneficiary\s*Name|Beneficiary|Paid\s*to|To\s*VPA)[:\s\r\n]+([^\r\n]+)/i);
+  if (kvMerchantMatch && kvMerchantMatch[1].trim().length > 1) {
+    rawMerchant = kvMerchantMatch[1].trim();
+  }
 
-  if (atMatch && atMatch[1].trim().length > 1) {
-    rawMerchant = atMatch[1].trim();
-  } else if (toMatch && toMatch[1].trim().length > 1) {
-    rawMerchant = toMatch[1].trim();
-  } else if (!isExpense && fromMatch && fromMatch[1].trim().length > 1) {
-    rawMerchant = fromMatch[1].trim();
-  } else if (towardsMatch && towardsMatch[1].trim().length > 1) {
-    rawMerchant = towardsMatch[1].trim();
-  } else if (infoMatch && infoMatch[1].trim().length > 1) {
-    rawMerchant = infoMatch[1].trim();
-  } else if (fromMatch && fromMatch[1].trim().length > 1) {
-    rawMerchant = fromMatch[1].trim();
-  } else if (subject) {
-    rawMerchant = subject.replace(/transaction alert|alert:|update on/gi, '').trim();
+  if (!rawMerchant) {
+    const atMatch = fullText.match(/\bat\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\s+on\b|\s+at\s+\d|\.|\n|Available|Auth|Avail)/i);
+    const toMatch = fullText.match(/\b(?:to\s*VPA|transfer\s*to|to)\s+([A-Za-z0-9\.\@\-\s]+?)(?:\s+on\b|\s+Ref\b|\.|\n|Available)/i);
+    const fromMatch = fullText.match(/\b(?:transfer\s*from|received\s*from|from)\s+([A-Za-z0-9\s\.\&\*\-]+?)(?:\.|\n|UPI|NEFT|Ref|on\b)/i);
+    const towardsMatch = fullText.match(/\btowards\s+([A-Za-z0-9\/\.\-]+?)(?:\.|\n|Available|Avail|Total)/i);
+    const infoMatch = fullText.match(/\bInfo:\s*([A-Za-z0-9\/\.\@\-\s]+?)(?:\.|\n|Total|Available|Avail|Bal|$)/i);
+
+    if (atMatch && atMatch[1].trim().length > 1) {
+      rawMerchant = atMatch[1].trim();
+    } else if (toMatch && toMatch[1].trim().length > 1) {
+      rawMerchant = toMatch[1].trim();
+    } else if (!isExpense && fromMatch && fromMatch[1].trim().length > 1) {
+      rawMerchant = fromMatch[1].trim();
+    } else if (towardsMatch && towardsMatch[1].trim().length > 1) {
+      rawMerchant = towardsMatch[1].trim();
+    } else if (infoMatch && infoMatch[1].trim().length > 1) {
+      rawMerchant = infoMatch[1].trim();
+    } else if (fromMatch && fromMatch[1].trim().length > 1) {
+      rawMerchant = fromMatch[1].trim();
+    } else if (subject) {
+      rawMerchant = subject.replace(/transaction alert|alert:|update on/gi, '').trim();
+    }
+  }
+
+  // Clean trailing date/time fragments from narration (e.g. "on 28-10-2026")
+  if (rawMerchant) {
+    rawMerchant = rawMerchant.replace(/\s+on\s+\d{1,2}[\/\-\.][A-Za-z0-9\/\-\.]+.*$/i, '');
+    rawMerchant = rawMerchant.replace(/\s+at\s+\d{1,2}:\d{2}.*$/i, '');
+    if (/^(?:INR|Rs|Available|Total|Axis|Bank|Credit|Debit)\b/i.test(rawMerchant) && !rawMerchant.includes(' ')) {
+      rawMerchant = '';
+    }
   }
 
   const cleanMerchant = cleanNarration(rawMerchant || 'Bank Transaction');
@@ -106,7 +164,22 @@ function parseEmailAlertText(subject = '', body = '', dateReceived = null, email
 // Parse multi-block alert emails or SMS
 function parseMultipleAlertTexts(rawText) {
   if (!rawText || !rawText.trim()) return [];
-  const chunks = rawText.split(/(?:\r?\n\s*){2,}|(?=Dear\s+(?:Customer|Cardholder)|Transaction\s+alert|Alert:)/i);
+
+  // If text is a single key-value alert, do not split into orphan fragments!
+  const kvOccurrences = (rawText.match(/Transaction\s*Amount:/gi) || []).length;
+  if (kvOccurrences === 1) {
+    const single = parseEmailAlertText('', rawText.trim());
+    return single ? [single] : [];
+  }
+
+  // When multiple alerts exist, split on alert header boundaries or double newlines
+  let chunks = [];
+  if (kvOccurrences > 1) {
+    chunks = rawText.split(/(?=(?:Transaction\s*Amount:))/i);
+  } else {
+    chunks = rawText.split(/(?:\r?\n\s*){2,}|(?=(?:Dear\s+(?:Customer|Cardholder|UPI\s+user)|Transaction\s*Alert|Instant\s*Alert|Alert:|\bFrom:\s*))/i);
+  }
+
   const results = [];
   chunks.forEach(chunk => {
     if (!chunk.trim()) return;
@@ -115,6 +188,12 @@ function parseMultipleAlertTexts(rawText) {
       results.push(item);
     }
   });
+
+  if (results.length === 0) {
+    const single = parseEmailAlertText('', rawText.trim());
+    if (single && single.amount > 0) results.push(single);
+  }
+
   return results;
 }
 

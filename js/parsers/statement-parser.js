@@ -112,6 +112,50 @@ window.togglePasswordVisibility = function() {
   if (input) input.type = input.type === 'password' ? 'text' : 'password';
 };
 
+// Duplicate Checking Against Ledger
+function isDuplicateTransaction(normDate, amount, isExpense, merchant, refId = '') {
+  let ledger = [];
+  if (isExpense) {
+    if (typeof expenses !== 'undefined' && Array.isArray(expenses)) {
+      ledger = expenses;
+    } else if (typeof window !== 'undefined' && Array.isArray(window.ft_expenses)) {
+      ledger = window.ft_expenses;
+    } else if (typeof loadData === 'function') {
+      ledger = loadData('ft_expenses', []);
+    }
+  } else {
+    if (typeof incomeEntries !== 'undefined' && Array.isArray(incomeEntries)) {
+      ledger = incomeEntries;
+    } else if (typeof window !== 'undefined' && Array.isArray(window.ft_income)) {
+      ledger = window.ft_income;
+    } else if (typeof loadData === 'function') {
+      ledger = loadData('ft_income', []);
+    }
+  }
+
+  if (!Array.isArray(ledger) || ledger.length === 0) return false;
+
+  return ledger.some(e => {
+    if (!e) return false;
+    if (refId && e.note && e.note.includes(refId)) return true;
+    const amtMatch = Math.abs(parseFloat(e.amount) - amount) < 0.01;
+    if (!amtMatch) return false;
+    const tDate = new Date(normDate).getTime();
+    const eDate = new Date(e.date).getTime();
+    const diffDays = Math.abs(tDate - eDate) / (1000 * 60 * 60 * 24);
+    if (diffDays <= 2) {
+      const normNote = (e.note || e.source || '').toLowerCase();
+      const normMerchant = (merchant || '').toLowerCase();
+      if (normNote.includes(normMerchant) || normMerchant.includes(normNote) || (typeof merchantMatches === 'function' && merchantMatches(merchant, normNote))) {
+        return true;
+      }
+      if (diffDays === 0) return true;
+    }
+    return false;
+  });
+}
+window.isDuplicateTransaction = isDuplicateTransaction;
+
 // PDF Parser with PDF.js
 async function parsePDFDocument(arrayBuffer, bankPreset = 'auto') {
   setParsingStatus(true, 'Parsing PDF document in browser...');
@@ -181,14 +225,53 @@ async function parsePDFDocument(arrayBuffer, bankPreset = 'auto') {
   parseBankStatementLines(allLines, bankPreset);
 }
 
+// Aggregate multi-line statement entries into coherent transaction records
+function aggregateStatementRows(lines) {
+  const dateRegex = /^\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{2,4})\b/;
+  const aggregated = [];
+  let currentBlock = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // Skip PDF metadata, headers and footers
+    if (/^\s*(?:tran\s*date|chq\s*no|particulars|closing\s*balance|opening\s*balance|transaction\s*total|end\s*of\s*statement|statement\s*of|customer\s*id|ifsc\s*code|micr\s*code|nominee|registered\s*mobile|pan:|ckyc|currency|legends\s*:|this\s*is\s*a\s*system\s*generated|branch\s*address|autosweep|rev\s*sweep|cwdr|vmt)/i.test(line)) {
+      continue;
+    }
+
+    if (dateRegex.test(line)) {
+      if (currentBlock) aggregated.push(currentBlock);
+      currentBlock = line;
+    } else {
+      if (currentBlock) {
+        currentBlock += ' ' + line;
+      }
+    }
+  }
+  if (currentBlock) aggregated.push(currentBlock);
+  return aggregated.length > 0 ? aggregated : lines;
+}
+
 // Bank Statement Line Parser
 function parseBankStatementLines(lines, bankPreset = 'auto') {
   setParsingStatus(true, `Extracting transactions from ${lines.length} statement lines...`);
   const results = [];
   const dateRegex = /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{2,4})\b/;
-  const amountRegex = /\b\d{1,3}(?:,\d{2,3})*(?:\.\d{2})\b/g;
+  const amountRegex = /(?<![\.\d\/])\b(?:\d{1,3}(?:,\d{2,3})*|\d+)\.\d{2}(?![\.\d\/])/g;
 
-  lines.forEach((line) => {
+  let lastBalance = null;
+  // Check if opening balance is present in raw lines
+  for (let i = 0; i < Math.min(lines.length, 35); i++) {
+    const openMatch = lines[i].match(/opening\s*balance\s*[:\s]*([0-9,]+\.[0-9]{2})/i);
+    if (openMatch) {
+      lastBalance = parseAmount(openMatch[1]);
+      break;
+    }
+  }
+
+  const statementBlocks = aggregateStatementRows(lines);
+
+  statementBlocks.forEach((line) => {
     const dateMatch = line.match(dateRegex);
     if (!dateMatch) return;
 
@@ -197,7 +280,7 @@ function parseBankStatementLines(lines, bankPreset = 'auto') {
     if (!amounts || amounts.length === 0) return;
 
     // Skip headers or summary lines
-    if (/closing balance|opening balance|total|balance carried/i.test(line)) return;
+    if (/closing\s*balance|opening\s*balance|transaction\s*total|balance\s*carried/i.test(line)) return;
 
     // Determine transaction amount
     const txnAmt = parseAmount(amounts[0]);
@@ -205,12 +288,33 @@ function parseBankStatementLines(lines, bankPreset = 'auto') {
 
     // Determine debit vs credit
     let isExpense = true;
-    if (/\b(?:cr|credit|salary|interest|refund|deposit|transfer from)\b/i.test(line)) {
-      isExpense = false;
-    } else if (/\b(?:dr|debit|withdrawal|pos|upi\/dr|atm|bill)\b/i.test(line)) {
-      isExpense = true;
-    } else if (amounts.length >= 2) {
-      isExpense = true;
+    const isCreditCardPayment = /credit\s*card\s*payment|payment.*credit\s*card|creditcard\s*payment/i.test(line);
+
+    if (amounts.length >= 2 && lastBalance !== null) {
+      const currentBal = parseAmount(amounts[1]);
+      const balanceDelta = currentBal - lastBalance;
+      if (Math.abs(balanceDelta - txnAmt) < 0.05) {
+        isExpense = false; // Credit (+)
+      } else if (Math.abs(Math.abs(balanceDelta) - txnAmt) < 0.05) {
+        isExpense = true; // Debit (-)
+      } else {
+        // Delta didn't match txnAmt (e.g. skipped rows or page break) - fallback to keywords
+        if (isCreditCardPayment) isExpense = true;
+        else if (/\b(?:cr|credit|salary|interest|refund|deposit|transfer from|cradj|rev\.of|reversal)\b/i.test(line)) isExpense = false;
+        else if (/\b(?:dr|debit|withdrawal|pos|upi\/dr|atm|bill|emi)\b/i.test(line)) isExpense = true;
+      }
+      lastBalance = currentBal;
+    } else {
+      if (isCreditCardPayment) {
+        isExpense = true;
+      } else if (/\b(?:cr|credit|salary|interest|refund|deposit|transfer from|cradj|rev\.of|reversal)\b/i.test(line)) {
+        isExpense = false;
+      } else if (/\b(?:dr|debit|withdrawal|pos|upi\/dr|atm|bill|emi)\b/i.test(line)) {
+        isExpense = true;
+      }
+      if (amounts.length >= 2) {
+        lastBalance = parseAmount(amounts[1]);
+      }
     }
 
     // Clean narration
@@ -221,7 +325,7 @@ function parseBankStatementLines(lines, bankPreset = 'auto') {
     const cleanMerchantName = cleanNarration(rawNarration);
     const normDate = normalizeDate(rawDate);
     const prediction = predictCategory(cleanMerchantName, rawNarration, isExpense);
-    const refMatch = line.match(/(?:UPI\s*Ref(?:\s*no)?|Ref\s*No|RRN|UTR|Chq|Cheque)[:\s\/]+([A-Za-z0-9]+)/i);
+    const refMatch = line.match(/(?:UPI\s*Ref(?:\s*no)?|Ref\s*No|Ref#|RRN|UTR|Chq|Cheque)[:\s\/#]+([A-Za-z0-9]+)/i);
     const refVal = refMatch ? refMatch[1] : '';
     const isDup = isDuplicateTransaction(normDate, txnAmt, isExpense, cleanMerchantName, refVal);
 

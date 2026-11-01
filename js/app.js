@@ -251,17 +251,540 @@ function renderDashboard() {
   }
 }
 
-function renderExpenses() {
-  const list = document.getElementById('expenseList');
-  if (!list) return;
-  const sorted = [...expenses].sort((a,b) => new Date(b.date) - new Date(a.date));
-  list.innerHTML = sorted.slice(0,15).map(e => `
-    <li>
-      <span>${e.date} – ${e.category} – ₹${parseFloat(e.amount).toFixed(2)} ${e.note ? '('+e.note+')' : ''}</span>
-      <button onclick="deleteExpense('${e.id}')" style="background:#c0392b; padding:0.3rem 0.6rem;">✕</button>
-    </li>
-  `).join('');
+// ============================================
+// EXPENSES & SPENDING ANALYSIS SUITE (Modern UI)
+// ============================================
+
+let expenseCurrentPage = 1;
+let expensePageSize = 15;
+let expenseCategoryChartInstance = null;
+let expenseMonthlyChartInstance = null;
+
+// Clean and parse note string into merchant title, details, and source
+function parseExpenseNote(note) {
+  if (!note) return { merchant: 'Expense', details: '', source: 'Manual', sourceClass: 'source-manual' };
+  let str = String(note).trim();
+  let source = 'Manual';
+  let sourceClass = 'source-manual';
+
+  if (str.includes('[Bank Statement]')) {
+    source = 'Bank Statement';
+    sourceClass = 'source-statement';
+    str = str.replace(/\[Bank Statement\]/gi, '').trim();
+  } else if (str.includes('[Merged Alert+Report]')) {
+    source = 'Merged Alert';
+    sourceClass = 'source-alert';
+    str = str.replace(/\[Merged Alert\+Report\]/gi, '').trim();
+  } else if (str.includes('[Email Alert]')) {
+    source = 'Email Alert';
+    sourceClass = 'source-alert';
+    str = str.replace(/\[Email Alert\]/gi, '').trim();
+  }
+
+  let refId = '';
+  const refM = str.match(/\[Ref:([A-Za-z0-9]+)\]/i);
+  if (refM) {
+    refId = refM[1];
+    str = str.replace(/\[Ref:[A-Za-z0-9]+\]/gi, '').trim();
+  }
+
+  // Strip leading slashes and common prefixes like /sent U/ or /pay to/
+  str = str.replace(/^[\s\/]+/, '');
+  str = str.replace(/^(?:sent\s*u|pay\s*to|pay\s*via|payment)[\/\s]*/i, '');
+
+  let cleanName = cleanNarration(str);
+  if (!cleanName || cleanName === 'Unknown' || cleanName.length < 2) {
+    cleanName = str.replace(/[_\-*#|\/]+/g, ' ').trim() || 'Expense';
+  }
+
+  return {
+    merchant: cleanName,
+    details: refId ? `Ref: ${refId}` : (str !== cleanName && str.length > cleanName.length ? str : ''),
+    source,
+    sourceClass
+  };
 }
+
+// Category Badge Helper with curated colors & icons
+function getCategoryBadge(category) {
+  const cat = (category || 'Other').trim();
+  const cLower = cat.toLowerCase();
+  let cls = 'cat-other';
+  let icon = '🏷️';
+
+  if (cLower.includes('bill')) { cls = 'cat-bills'; icon = '⚡'; }
+  else if (cLower.includes('food') || cLower.includes('drink') || cLower.includes('dining')) { cls = 'cat-food'; icon = '🍔'; }
+  else if (cLower.includes('grocer')) { cls = 'cat-groceries'; icon = '🛒'; }
+  else if (cLower.includes('shop')) { cls = 'cat-shopping'; icon = '🛍️'; }
+  else if (cLower.includes('emi') || cLower.includes('loan')) { cls = 'cat-emi'; icon = '🏦'; }
+  else if (cLower.includes('health') || cLower.includes('med')) { cls = 'cat-health'; icon = '💊'; }
+  else if (cLower.includes('travel') || cLower.includes('flight')) { cls = 'cat-travel'; icon = '✈️'; }
+  else if (cLower.includes('fuel') || cLower.includes('petrol')) { cls = 'cat-fuel'; icon = '⛽'; }
+  else if (cLower.includes('entertain') || cLower.includes('movie')) { cls = 'cat-entertainment'; icon = '🎬'; }
+  else if (cLower.includes('invest') || cLower.includes('mutual')) { cls = 'cat-investment'; icon = '📈'; }
+  else if (cLower.includes('salary') || cLower.includes('income')) { cls = 'cat-salary'; icon = '💼'; }
+
+  return `<span class="cat-badge ${cls}">${icon} ${cat}</span>`;
+}
+
+// Format Month Key (YYYY-MM) to User-Friendly Label (e.g. July 2026)
+function formatMonthLabel(ymStr) {
+  if (!ymStr) return '';
+  const parts = ymStr.split('-');
+  if (parts.length < 2) return ymStr;
+  const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+  return d.toLocaleString('default', { month: 'long', year: 'numeric' });
+}
+
+function renderExpenses() {
+  const tableBody = document.getElementById('expenseTableBody');
+  if (!tableBody) return;
+
+  // 1. Populate Month Filter options dynamically from expenses if needed
+  const monthFilter = document.getElementById('expMonthFilter');
+  if (monthFilter) {
+    const prevMonthVal = monthFilter.value;
+    const uniqueMonths = new Set();
+    expenses.forEach(e => {
+      if (e.date && e.date.length >= 7) {
+        uniqueMonths.add(e.date.slice(0, 7)); // YYYY-MM
+      }
+    });
+    const sortedMonths = Array.from(uniqueMonths).sort().reverse();
+    let monthOpts = '<option value="all">📅 All Months</option>';
+    sortedMonths.forEach(ym => {
+      monthOpts += `<option value="${ym}">${formatMonthLabel(ym)}</option>`;
+    });
+    monthFilter.innerHTML = monthOpts;
+    if (prevMonthVal && (prevMonthVal === 'all' || uniqueMonths.has(prevMonthVal))) {
+      monthFilter.value = prevMonthVal;
+    }
+  }
+
+  // 2. Populate Category Filter options dynamically
+  const catFilter = document.getElementById('expCatFilter');
+  if (catFilter) {
+    const prevCatVal = catFilter.value;
+    const uniqueCats = new Set(DEFAULT_CATEGORIES.expense || []);
+    expenses.forEach(e => { if (e.category) uniqueCats.add(e.category); });
+    let catOpts = '<option value="all">🏷️ All Categories</option>';
+    Array.from(uniqueCats).sort().forEach(c => {
+      catOpts += `<option value="${c}">${c}</option>`;
+    });
+    catFilter.innerHTML = catOpts;
+    if (prevCatVal && (prevCatVal === 'all' || uniqueCats.has(prevCatVal))) {
+      catFilter.value = prevCatVal;
+    }
+  }
+
+  // 3. Apply Filters
+  const searchInput = document.getElementById('expSearch');
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  const selectedMonth = monthFilter ? monthFilter.value : 'all';
+  const selectedCat = catFilter ? catFilter.value : 'all';
+  const sortSelect = document.getElementById('expSort');
+  const sortMode = sortSelect ? sortSelect.value : 'date-desc';
+
+  let filtered = expenses.filter(e => {
+    // Month filter
+    if (selectedMonth !== 'all') {
+      if (!e.date || !e.date.startsWith(selectedMonth)) return false;
+    }
+    // Category filter
+    if (selectedCat !== 'all') {
+      if (e.category !== selectedCat) return false;
+    }
+    // Search query
+    if (query) {
+      const matchText = `${e.date} ${e.category} ${e.amount} ${e.note || ''}`.toLowerCase();
+      if (!matchText.includes(query)) return false;
+    }
+    return true;
+  });
+
+  // 4. Sort
+  filtered.sort((a, b) => {
+    if (sortMode === 'date-asc') return new Date(a.date) - new Date(b.date);
+    if (sortMode === 'amt-desc') return parseFloat(b.amount) - parseFloat(a.amount);
+    if (sortMode === 'amt-asc') return parseFloat(a.amount) - parseFloat(b.amount);
+    return new Date(b.date) - new Date(a.date); // default date-desc
+  });
+
+  // 5. Compute KPIs
+  const totalFilteredAmt = filtered.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  const avgFilteredSpend = filtered.length > 0 ? (totalFilteredAmt / filtered.length) : 0;
+
+  // Category breakdown for KPIs and Chart
+  const catSums = {};
+  filtered.forEach(e => {
+    const c = e.category || 'Other';
+    catSums[c] = (catSums[c] || 0) + (parseFloat(e.amount) || 0);
+  });
+
+  let topCategory = 'None';
+  let topCatAmt = 0;
+  for (const [c, amt] of Object.entries(catSums)) {
+    if (amt > topCatAmt) {
+      topCatAmt = amt;
+      topCategory = c;
+    }
+  }
+  const topCatPct = totalFilteredAmt > 0 ? Math.round((topCatAmt / totalFilteredAmt) * 100) : 0;
+
+  // Render KPI Summary Cards
+  const kpiContainer = document.getElementById('expenseKpis');
+  if (kpiContainer) {
+    const periodLabel = selectedMonth !== 'all' ? formatMonthLabel(selectedMonth) : 'All Time';
+    kpiContainer.innerHTML = `
+      <div class="stat" style="border-top:3px solid #2563eb;">
+        <div class="label">Total Spent (${periodLabel})</div>
+        <div class="value" style="color:#1e293b;">₹${totalFilteredAmt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+      </div>
+      <div class="stat" style="border-top:3px solid #0f766e;">
+        <div class="label">Top Category</div>
+        <div class="value" style="font-size:1.35rem; color:#0f766e;">${topCategory} ${topCatPct ? `(${topCatPct}%)` : ''}</div>
+      </div>
+      <div class="stat" style="border-top:3px solid #d97706;">
+        <div class="label">Transactions</div>
+        <div class="value" style="color:#d97706;">${filtered.length}</div>
+      </div>
+      <div class="stat" style="border-top:3px solid #7c3aed;">
+        <div class="label">Average Spend</div>
+        <div class="value" style="color:#7c3aed;">₹${avgFilteredSpend.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+      </div>
+    `;
+  }
+
+  // Update header count & sum
+  const countBadge = document.getElementById('expenseFilteredCount');
+  if (countBadge) countBadge.textContent = filtered.length;
+  const sumBadge = document.getElementById('expenseFilteredSum');
+  if (sumBadge) sumBadge.textContent = `Total: ₹${totalFilteredAmt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // 6. Update Charts
+  renderExpenseCharts(catSums, totalFilteredAmt);
+
+  // 7. Paginate and Render Table
+  const emptyState = document.getElementById('expenseEmptyState');
+  const table = document.getElementById('expenseTable');
+  const paginationBar = document.getElementById('expensePagination');
+
+  if (filtered.length === 0) {
+    tableBody.innerHTML = '';
+    if (table) table.classList.add('hidden');
+    if (emptyState) emptyState.classList.remove('hidden');
+    if (paginationBar) paginationBar.classList.add('hidden');
+    return;
+  }
+
+  if (table) table.classList.remove('hidden');
+  if (emptyState) emptyState.classList.add('hidden');
+  if (paginationBar) paginationBar.classList.remove('hidden');
+
+  const pageSizeNum = expensePageSize === 'all' ? filtered.length : parseInt(expensePageSize, 10);
+  const totalPages = Math.ceil(filtered.length / pageSizeNum) || 1;
+  if (expenseCurrentPage > totalPages) expenseCurrentPage = totalPages;
+  if (expenseCurrentPage < 1) expenseCurrentPage = 1;
+
+  const startIdx = (expenseCurrentPage - 1) * pageSizeNum;
+  const endIdx = Math.min(startIdx + pageSizeNum, filtered.length);
+  const pageItems = filtered.slice(startIdx, endIdx);
+
+  // Render Rows
+  tableBody.innerHTML = pageItems.map(e => {
+    const parsed = parseExpenseNote(e.note);
+    const amt = parseFloat(e.amount) || 0;
+    const catBadgeHtml = getCategoryBadge(e.category);
+
+    return `
+      <tr>
+        <td style="font-weight:500; color:#475569; white-space:nowrap;">${e.date || '–'}</td>
+        <td>
+          <div class="merchant-cell">
+            <span class="merchant-name">${parsed.merchant}</span>
+            ${parsed.details ? `<span class="merchant-sub">${parsed.details}</span>` : ''}
+          </div>
+        </td>
+        <td>${catBadgeHtml}</td>
+        <td><span class="source-badge ${parsed.sourceClass}">${parsed.source}</span></td>
+        <td style="text-align:right;">
+          <span class="amount-expense">- ₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </td>
+        <td style="text-align:center;">
+          <button type="button" class="btn-delete-row" onclick="deleteExpense('${e.id}')" title="Delete transaction">✕</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Update Pagination Controls
+  const pageInfo = document.getElementById('expensePageInfo');
+  if (pageInfo) {
+    pageInfo.textContent = `Showing ${startIdx + 1}–${endIdx} of ${filtered.length} transactions`;
+  }
+  const pageNumSpan = document.getElementById('expCurrentPageNum');
+  if (pageNumSpan) {
+    pageNumSpan.textContent = `${expenseCurrentPage} / ${totalPages}`;
+  }
+  const prevBtn = document.getElementById('expPrevPage');
+  if (prevBtn) prevBtn.disabled = expenseCurrentPage <= 1;
+  const nextBtn = document.getElementById('expNextPage');
+  if (nextBtn) nextBtn.disabled = expenseCurrentPage >= totalPages;
+}
+
+// Render Category Donut & Monthly Trend Bar Charts
+function renderExpenseCharts(catSums, totalAmt) {
+  // Chart 1: Category Donut
+  const catCanvas = document.getElementById('expenseCategoryChart');
+  const catHeaderTotal = document.getElementById('categoryChartTotal');
+  if (catHeaderTotal) {
+    catHeaderTotal.textContent = `₹${totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  }
+
+  if (catCanvas && typeof Chart !== 'undefined') {
+    const sortedCats = Object.entries(catSums).sort((a, b) => b[1] - a[1]);
+    const labels = sortedCats.map(x => x[0]);
+    const data = sortedCats.map(x => x[1]);
+
+    const palette = [
+      '#0284c7', '#ea580c', '#16a34a', '#d946ef', '#dc2626',
+      '#0d9488', '#6366f1', '#ca8a04', '#8b5cf6', '#059669',
+      '#475569', '#f43f5e', '#3b82f6', '#10b981', '#f59e0b'
+    ];
+
+    if (expenseCategoryChartInstance) {
+      expenseCategoryChartInstance.destroy();
+      expenseCategoryChartInstance = null;
+    }
+
+    if (data.length > 0) {
+      const ctx = catCanvas.getContext('2d');
+      expenseCategoryChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: data,
+            backgroundColor: palette.slice(0, data.length),
+            borderWidth: 2,
+            borderColor: '#ffffff',
+            hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: {
+                boxWidth: 12,
+                font: { size: 11 },
+                generateLabels: function(chart) {
+                  const d = chart.data;
+                  if (d.labels.length && d.datasets.length) {
+                    return d.labels.slice(0, 7).map((label, i) => {
+                      const val = d.datasets[0].data[i];
+                      const pct = totalAmt > 0 ? Math.round((val / totalAmt) * 100) : 0;
+                      return {
+                        text: `${label} (${pct}%)`,
+                        fillStyle: d.datasets[0].backgroundColor[i],
+                        hidden: false,
+                        index: i
+                      };
+                    });
+                  }
+                  return [];
+                }
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(item) {
+                  const val = item.raw || 0;
+                  const pct = totalAmt > 0 ? ((val / totalAmt) * 100).toFixed(1) : 0;
+                  return ` ₹${val.toLocaleString('en-IN', { maximumFractionDigits: 2 })} (${pct}%)`;
+                }
+              }
+            }
+          },
+          cutout: '62%'
+        }
+      });
+    }
+  }
+
+  // Chart 2: Monthly Spending Trend Bar Chart
+  const monthlyCanvas = document.getElementById('expenseMonthlyChart');
+  if (monthlyCanvas && typeof Chart !== 'undefined') {
+    const monthlySums = {};
+    expenses.forEach(e => {
+      if (e.date && e.date.length >= 7) {
+        const ym = e.date.slice(0, 7);
+        monthlySums[ym] = (monthlySums[ym] || 0) + (parseFloat(e.amount) || 0);
+      }
+    });
+
+    const sortedMonths = Object.keys(monthlySums).sort();
+    const monthLabels = sortedMonths.map(ym => {
+      const parts = ym.split('-');
+      const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
+      return d.toLocaleString('default', { month: 'short', year: '2-digit' });
+    });
+    const monthData = sortedMonths.map(ym => monthlySums[ym]);
+
+    if (expenseMonthlyChartInstance) {
+      expenseMonthlyChartInstance.destroy();
+      expenseMonthlyChartInstance = null;
+    }
+
+    if (monthData.length > 0) {
+      const ctx = monthlyCanvas.getContext('2d');
+      expenseMonthlyChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: monthLabels,
+          datasets: [{
+            label: 'Total Expenses',
+            data: monthData,
+            backgroundColor: 'rgba(239, 68, 68, 0.75)',
+            borderColor: '#dc2626',
+            borderWidth: 1.5,
+            borderRadius: 6,
+            maxBarThickness: 45
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(item) {
+                  return ` Spent: ₹${item.raw.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(val) {
+                  return '₹' + (val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val);
+                },
+                font: { size: 10 }
+              },
+              grid: { color: '#f1f5f9' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 11, weight: '500' } }
+            }
+          }
+        }
+      });
+    }
+  }
+}
+
+// Filter and Pagination Handlers
+window.handleExpenseFilterChange = function() {
+  expenseCurrentPage = 1;
+  renderExpenses();
+};
+
+window.resetExpenseFilters = function() {
+  const searchInput = document.getElementById('expSearch');
+  if (searchInput) searchInput.value = '';
+  const monthFilter = document.getElementById('expMonthFilter');
+  if (monthFilter) monthFilter.value = 'all';
+  const catFilter = document.getElementById('expCatFilter');
+  if (catFilter) catFilter.value = 'all';
+  const sortSelect = document.getElementById('expSort');
+  if (sortSelect) sortSelect.value = 'date-desc';
+  expenseCurrentPage = 1;
+  renderExpenses();
+};
+
+window.prevExpensePage = function() {
+  if (expenseCurrentPage > 1) {
+    expenseCurrentPage--;
+    renderExpenses();
+  }
+};
+
+window.nextExpensePage = function() {
+  expenseCurrentPage++;
+  renderExpenses();
+};
+
+window.changeExpensePageSize = function(size) {
+  expensePageSize = size;
+  expenseCurrentPage = 1;
+  renderExpenses();
+};
+
+window.toggleExpenseForm = function() {
+  const card = document.getElementById('manualEntryCard');
+  const icon = document.getElementById('toggleAddExpenseIcon');
+  const text = document.getElementById('toggleAddExpenseText');
+  if (!card) return;
+  const isHidden = card.classList.contains('hidden');
+  if (isHidden) {
+    card.classList.remove('hidden');
+    if (icon) icon.textContent = '✕';
+    if (text) text.textContent = 'Close';
+    document.getElementById('expDate')?.focus();
+  } else {
+    card.classList.add('hidden');
+    if (icon) icon.textContent = '➕';
+    if (text) text.textContent = 'Add Entry';
+  }
+};
+
+window.switchManualForm = function(type) {
+  const expForm = document.getElementById('expenseForm');
+  const incForm = document.getElementById('incomeForm');
+  const tabExp = document.getElementById('tabManualExp');
+  const tabInc = document.getElementById('tabManualInc');
+  if (!expForm || !incForm) return;
+
+  if (type === 'expense') {
+    expForm.classList.remove('hidden');
+    incForm.classList.add('hidden');
+    tabExp?.classList.add('active');
+    tabInc?.classList.remove('active');
+  } else {
+    expForm.classList.add('hidden');
+    incForm.classList.remove('hidden');
+    tabExp?.classList.remove('active');
+    tabInc?.classList.add('active');
+  }
+};
+
+// Auto-clean all stored transaction notes (removes /sent U/, technical prefixes, branch numbers)
+window.cleanUpAllStoredExpenses = function() {
+  if (!expenses || expenses.length === 0) {
+    alert('No stored expenses to clean.');
+    return;
+  }
+  let count = 0;
+  expenses.forEach(e => {
+    if (e.note) {
+      const parsed = parseExpenseNote(e.note);
+      const newNote = parsed.details ? `${parsed.merchant} [${parsed.source}] [${parsed.details}]` : `${parsed.merchant} [${parsed.source}]`;
+      if (newNote !== e.note) {
+        e.note = newNote;
+        count++;
+      }
+    }
+  });
+  saveData('ft_expenses', expenses);
+  renderAll();
+  alert(`✨ Successfully cleaned up narration for ${count} transaction(s)!`);
+};
 
 function renderChores() {
   const list = document.getElementById('choreList');
@@ -576,6 +1099,8 @@ document.addEventListener('DOMContentLoaded', function() {
       } else if (this.dataset.panel === 'statements') {
         if (typeof renderMerchantRulesList === 'function') renderMerchantRulesList();
         if (typeof renderCreditProfile === 'function') renderCreditProfile();
+      } else if (this.dataset.panel === 'expenses') {
+        renderExpenses();
       }
     });
   });

@@ -4,8 +4,8 @@
  */
 
 // Google Drive & Gmail API Configuration
-let CLIENT_ID = localStorage.getItem('ft_google_client_id') || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-let API_KEY = localStorage.getItem('ft_google_api_key') || 'YOUR_GOOGLE_API_KEY';
+let CLIENT_ID = localStorage.getItem('ft_google_client_id') || '7234053629-97gi8g46g600dadhsqr3krcarsmvl961.apps.googleusercontent.com';
+let API_KEY = localStorage.getItem('ft_google_api_key') || 'AIzaSyDvN_YfLyUQN1Zt6-5bQ77cuy98EYuAd-4';
 const DRIVE_DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
 const GMAIL_DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest';
 const DISCOVERY_DOCS = [DRIVE_DISCOVERY_DOC, GMAIL_DISCOVERY_DOC];

@@ -630,3 +630,200 @@ canvas {
   color: #475569;
   margin-bottom: 1rem;
 }
+
+/* ==========================================================================
+   EXPENSES & SPENDING ANALYSIS BOARD (Modern UI)
+   ========================================================================== */
+
+.btn-sub {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.82rem;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btn-sub.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.expense-toolbar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-wrap {
+  flex: 1;
+  min-width: 220px;
+}
+
+.search-wrap input {
+  width: 100%;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-wrap input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.filter-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-controls select {
+  padding: 0.48rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.modern-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.modern-table thead {
+  background: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.modern-table th {
+  padding: 0.7rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.modern-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background-color 0.15s ease;
+}
+
+.modern-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.modern-table td {
+  padding: 0.75rem 0.85rem;
+  vertical-align: middle;
+  color: #1e293b;
+}
+
+.merchant-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.merchant-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.merchant-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.22rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Category Badge Color Palette */
+.cat-bills { background: #e0f2fe; color: #0284c7; }
+.cat-food { background: #ffedd5; color: #c2410c; }
+.cat-groceries { background: #dcfce7; color: #15803d; }
+.cat-shopping { background: #fae8ff; color: #a21caf; }
+.cat-emi { background: #fee2e2; color: #b91c1c; }
+.cat-health { background: #ccfbf1; color: #0f766e; }
+.cat-travel { background: #e0e7ff; color: #4338ca; }
+.cat-fuel { background: #fef9c3; color: #a16207; }
+.cat-entertainment { background: #f3e8ff; color: #7e22ce; }
+.cat-investment { background: #d1fae5; color: #047857; }
+.cat-salary { background: #ecfdf5; color: #059669; }
+.cat-other { background: #f1f5f9; color: #475569; }
+
+.source-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.source-statement { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.source-alert { background: #fef3c7; color: #b45309; border-color: #fde68a; }
+.source-manual { background: #f8fafc; color: #475569; border-color: #e2e8f0; }
+
+.amount-expense {
+  font-weight: 700;
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+}
+
+.btn-delete-row {
+  background: none;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+}
+
+.btn-delete-row:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+

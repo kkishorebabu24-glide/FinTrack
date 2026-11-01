@@ -7,14 +7,14 @@
 function cleanNarration(raw) {
   if (!raw) return 'Unknown';
   let s = String(raw).trim();
-  // Remove UPI prefixes: UPI/DR/123456/MERCHANT/BANK/HANDLE or UPI/CR/...
-  s = s.replace(/^UPI\s*[\/\-:]\s*(?:DR|CR)?\s*[\/\-:]?\s*\d*\s*[\/\-:]?/i, '');
+  // Remove UPI prefixes: UPI/DR/123456/MERCHANT/BANK/HANDLE or UPI/CR/... or UPI/P2M/... or UPI/P2A/...
+  s = s.replace(/^UPI\s*[\/\-:]\s*(?:DR|CR|P2M|P2A|CRADJ)?\s*[\/\-:]?\s*\d*\s*[\/\-:]?/i, '');
   // Remove POS prefixes: POS 421443XXXXXX1234 RELIANCE SMART
   s = s.replace(/^POS\s+[\dX*]+\s+/i, '');
   s = s.replace(/^POS\s+/i, '');
   // Remove NEFT/RTGS/IMPS prefixes: NEFT CR-HDFC0000001-SALARY...
   s = s.replace(/^(?:NEFT|RTGS)\s*(?:CR|DR)?\s*[\/\-:]\s*[A-Z0-9]+\s*[\/\-:]/i, '');
-  s = s.replace(/^IMPS\s*[\/\-:]\s*\d*\s*[\/\-:]/i, '');
+  s = s.replace(/^IMPS\s*[\/\-:]\s*(?:P2A|P2M)?\s*[\/\-:]?\s*\d*\s*[\/\-:]?/i, '');
   // Remove ACH/NACH/ECS prefixes: ACH D- HDFC0000001-BAJAJ
   s = s.replace(/^(?:ACH|NACH|ECS)\s*(?:D|C)?\s*[\/\-:]\s*[A-Z0-9]*\s*[\/\-:]?/i, '');
   // Remove ATM withdrawals: ATM-WDL/CASH/LOC
@@ -22,13 +22,29 @@ function cleanNarration(raw) {
   // Remove BillDesk/EAW/BIL/CMS/INB: BILLDESK*AIRTEL
   s = s.replace(/^(?:BILLDESK|EAW|BIL|CMS|INB)\s*[*\/:\-]\s*/i, '');
 
-  // Remove trailing VPA / bank handles
+  // Remove common banking suffixes in narration
+  s = s.replace(/\/(?:Sent u|Pay to|Pay via|Payment|Oid[a-zA-Z0-9]+|MandateR|MandateE)[\/a-zA-Z0-9\s]*/gi, '');
   s = s.replace(/@[a-zA-Z0-9\.\-]+/g, '');
-  s = s.replace(/[\/](?:HDFC|ICICI|SBI|UTIB|AXIS|PAYTM|YESB|OKAXIS|OKHDFCBANK|PAY)[\/a-zA-Z0-9]*/gi, '');
+  s = s.replace(/[\/](?:HDFC|ICICI|SBI|UTIB|AXIS|PAYTM|YESB|OKAXIS|OKHDFCBANK|PAY|CNRB|UBIN|KKBK)[\/a-zA-Z0-9\s]*/gi, '');
   s = s.replace(/[\/]\d{6,}[\/]?/g, '');
 
+  // Strip trailing branch codes or reference numbers like "538" at end of line
+  s = s.replace(/\b\d{3,4}\s*$/, '');
+
+  // Special patterns for high clarity
+  if (/CRADJ/i.test(raw)) return 'UPI Credit Adjustment';
+  if (/credit\s*card\s*payment/i.test(raw)) return 'Credit Card Bill Payment';
+  if (/^PPF\b/i.test(raw) || /\/PPF\b/i.test(raw)) return 'Public Provident Fund (PPF)';
+  if (/salary\s*for\s*[a-z]+/i.test(raw)) {
+    const sm = raw.match(/salary\s*for\s*([a-z0-9\-]+)/i);
+    return `Salary (${sm ? sm[1] : 'Monthly'})`;
+  }
+
+  // Remove embedded dates in narration (e.g. 07.04.2026)
+  s = s.replace(/\b\d{1,2}[\.\-\/]\d{1,2}[\.\-\/]\d{2,4}\b/g, '');
+
   // Clean special characters and multi-spaces
-  s = s.replace(/[_\-*#|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  s = s.replace(/[_\-*#|\/]+/g, ' ').replace(/\s+/g, ' ').trim();
 
   // Title case for readability
   if (s.length > 0) {

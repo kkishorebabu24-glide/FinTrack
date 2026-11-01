@@ -69,25 +69,117 @@ function findAttachmentsInMessage(payload) {
 }
 
 // ============================================
+// GMAIL & DRIVE API PROVIDERS (RESILIENT ADAPTERS)
+// ============================================
+
+function getAuthToken() {
+  return (typeof gapi !== 'undefined' && gapi.client && gapi.client.getToken?.()?.access_token) || localStorage.getItem('google_token') || '';
+}
+
+function getGmailClient() {
+  const token = getAuthToken();
+  if (typeof gapi !== 'undefined' && gapi.client && gapi.client.gmail) {
+    if (token) gapi.client.setToken({ access_token: token });
+    return gapi.client.gmail;
+  }
+  // Resilient direct REST API adapter when gapi.client.gmail is not loaded
+  return {
+    users: {
+      messages: {
+        list: async ({ userId = 'me', q = '', maxResults = 50 }) => {
+          const t = getAuthToken();
+          if (!t) throw new Error('Not authenticated. Please connect your Google Account.');
+          const url = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userId)}/messages?q=${encodeURIComponent(q)}&maxResults=${maxResults}`;
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${t}` } });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Gmail API error (${res.status})`);
+          }
+          const data = await res.json();
+          return { result: data };
+        },
+        get: async ({ userId = 'me', id, format = 'full' }) => {
+          const t = getAuthToken();
+          if (!t) throw new Error('Not authenticated. Please connect your Google Account.');
+          const url = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userId)}/messages/${encodeURIComponent(id)}?format=${encodeURIComponent(format)}`;
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${t}` } });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || `Gmail API error (${res.status})`);
+          }
+          const data = await res.json();
+          return { result: data };
+        },
+        attachments: {
+          get: async ({ userId = 'me', messageId, id }) => {
+            const t = getAuthToken();
+            if (!t) throw new Error('Not authenticated. Please connect your Google Account.');
+            const url = `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(id)}`;
+            const res = await fetch(url, { headers: { 'Authorization': `Bearer ${t}` } });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.error?.message || `Gmail API error (${res.status})`);
+            }
+            const data = await res.json();
+            return { result: data };
+          }
+        }
+      }
+    }
+  };
+}
+
+async function ensureClientsLoaded() {
+  const token = getAuthToken();
+  if (typeof gapi !== 'undefined' && gapi.client) {
+    if (token) gapi.client.setToken({ access_token: token });
+    if (!gapi.client.gmail) {
+      try {
+        await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest');
+      } catch (e) {
+        console.warn('gapi Gmail discovery load note:', e);
+      }
+    }
+    if (!gapi.client.drive) {
+      try {
+        await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
+      } catch (e) {
+        console.warn('gapi Drive discovery load note:', e);
+      }
+    }
+  }
+}
+
+// ============================================
 // GMAIL SYNC & SCAN WORKFLOWS
 // ============================================
 
 window.syncFromGmail = async function() {
   if (!checkGoogleConfigPrerequisites()) return;
-  if (!isAuthenticated || !gapi.client.gmail) {
+  const token = getAuthToken();
+  if (!isAuthenticated && !token) {
     if (!confirm('To sync transaction alerts directly from Gmail, please sign in with your Google Account to grant read-only access. Would you like to connect now?')) {
       return;
     }
     tokenClient.callback = async (resp) => {
       if (resp.error !== undefined) { alert('Sign-in error: ' + resp.error); return; }
       localStorage.setItem('google_token', resp.access_token);
+      if (typeof gapi !== 'undefined' && gapi.client) {
+        gapi.client.setToken({ access_token: resp.access_token });
+      }
       isAuthenticated = true;
       updateUIForAuth(true);
+      await ensureClientsLoaded();
       doGmailScan();
     };
     tokenClient.requestAccessToken({ prompt: 'consent' });
     return;
   }
+  if (token && typeof gapi !== 'undefined' && gapi.client) {
+    gapi.client.setToken({ access_token: token });
+    isAuthenticated = true;
+  }
+  await ensureClientsLoaded();
   doGmailScan();
 };
 
@@ -98,20 +190,21 @@ async function doGmailScan() {
 
   setParsingStatus(true, `🔍 Searching Gmail for bank alerts & statements in last ${days} days...`);
   try {
+    const gmail = getGmailClient();
     const parsedAlerts = [];
 
     // 1. Search Alert Emails
     if (scanAlerts) {
       const alertQuery = `(from:alerts@hdfcbank.net OR from:instalerts@hdfcbank.net OR from:bankingalerts@icicibank.com OR from:alerts@sbicard.com OR from:DoNotReply@sbi.co.in OR from:alerts@axisbank.com OR from:kotak OR from:indusind OR from:idfcfirstbank OR from:rblbank OR subject:"transaction alert" OR subject:"alert:" OR subject:"debited" OR subject:"spent" OR subject:"credited") (debited OR credited OR spent OR withdrawn OR "UPI txn" OR "UPI Ref") newer_than:${days}d`;
       setParsingStatus(true, `Fetching alert messages from Gmail...`);
-      const alertListRes = await gapi.client.gmail.users.messages.list({ userId: 'me', q: alertQuery, maxResults: 60 });
-      const alertMsgs = alertListRes.result.messages || [];
+      const alertListRes = await gmail.users.messages.list({ userId: 'me', q: alertQuery, maxResults: 60 });
+      const alertMsgs = alertListRes.result?.messages || [];
 
       for (let i = 0; i < alertMsgs.length; i++) {
         setParsingStatus(true, `Reading alert email ${i+1}/${alertMsgs.length}...`);
-        const msgRes = await gapi.client.gmail.users.messages.get({ userId: 'me', id: alertMsgs[i].id, format: 'full' });
-        const payload = msgRes.result.payload;
-        const headers = payload.headers || [];
+        const msgRes = await gmail.users.messages.get({ userId: 'me', id: alertMsgs[i].id, format: 'full' });
+        const payload = msgRes.result?.payload;
+        const headers = payload?.headers || [];
         const subject = (headers.find(h => h.name.toLowerCase() === 'subject')?.value || '');
         const dateStr = (headers.find(h => h.name.toLowerCase() === 'date')?.value || '');
         const bodyText = extractGmailMessageBody(payload);
@@ -128,23 +221,23 @@ async function doGmailScan() {
       const stmtDays = Math.max(days, 60);
       const stmtQuery = `has:attachment (filename:pdf OR filename:csv) (subject:statement OR subject:"e-statement" OR subject:"account statement" OR subject:"credit card statement") newer_than:${stmtDays}d`;
       setParsingStatus(true, `Searching Gmail for monthly statement attachments...`);
-      const stmtListRes = await gapi.client.gmail.users.messages.list({ userId: 'me', q: stmtQuery, maxResults: 10 });
-      const stmtMsgs = stmtListRes.result.messages || [];
+      const stmtListRes = await gmail.users.messages.list({ userId: 'me', q: stmtQuery, maxResults: 10 });
+      const stmtMsgs = stmtListRes.result?.messages || [];
 
       for (let i = 0; i < stmtMsgs.length; i++) {
-        const msgRes = await gapi.client.gmail.users.messages.get({ userId: 'me', id: stmtMsgs[i].id, format: 'full' });
-        const attachments = findAttachmentsInMessage(msgRes.result.payload);
+        const msgRes = await gmail.users.messages.get({ userId: 'me', id: stmtMsgs[i].id, format: 'full' });
+        const attachments = findAttachmentsInMessage(msgRes.result?.payload);
 
         for (const att of attachments) {
           const fname = att.filename.toLowerCase();
           if (fname.endsWith('.pdf') || fname.endsWith('.csv')) {
             setParsingStatus(true, `Downloading attachment: ${att.filename}...`);
-            const attRes = await gapi.client.gmail.users.messages.attachments.get({
+            const attRes = await gmail.users.messages.attachments.get({
               userId: 'me',
               messageId: stmtMsgs[i].id,
               id: att.attachmentId
             });
-            if (attRes.result.data) {
+            if (attRes.result?.data) {
               if (fname.endsWith('.pdf')) {
                 const buf = base64ToUint8Array(attRes.result.data);
                 await parsePDFDocument(buf);
@@ -361,8 +454,12 @@ window.authenticate = function() {
     tokenClient.callback = async (resp) => {
       if (resp.error !== undefined) throw resp;
       localStorage.setItem('google_token', resp.access_token);
+      if (typeof gapi !== 'undefined' && gapi.client) {
+        gapi.client.setToken({ access_token: resp.access_token });
+      }
       isAuthenticated = true;
       updateUIForAuth(true);
+      await ensureClientsLoaded();
       const syncBtn = document.getElementById('syncBtn'); if (syncBtn) syncBtn.classList.remove('hidden');
       const restoreBtn = document.getElementById('restoreBtn'); if (restoreBtn) restoreBtn.classList.remove('hidden');
       const signOutBtn = document.getElementById('signOutBtn'); if (signOutBtn) signOutBtn.classList.remove('hidden');
@@ -406,27 +503,81 @@ window.signOut = function() {
 // GOOGLE DRIVE BACKUP & RESTORE
 // ============================================
 
+function getDriveClient() {
+  const token = getAuthToken();
+  if (typeof gapi !== 'undefined' && gapi.client && gapi.client.drive) {
+    if (token) gapi.client.setToken({ access_token: token });
+    return gapi.client.drive;
+  }
+  return {
+    files: {
+      list: async ({ q = '', fields = 'files(id, name)', spaces = 'drive' }) => {
+        const t = getAuthToken();
+        if (!t) throw new Error('Not authenticated with Google Drive.');
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&spaces=${encodeURIComponent(spaces)}`;
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${t}` } });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `Drive API error (${res.status})`);
+        }
+        const data = await res.json();
+        return { result: data };
+      },
+      create: async ({ resource, fields = 'id' }) => {
+        const t = getAuthToken();
+        if (!t) throw new Error('Not authenticated with Google Drive.');
+        const url = `https://www.googleapis.com/drive/v3/files?fields=${encodeURIComponent(fields)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${t}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(resource)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `Drive API error (${res.status})`);
+        }
+        const data = await res.json();
+        return { result: data };
+      },
+      get: async ({ fileId, alt = 'media' }) => {
+        const t = getAuthToken();
+        if (!t) throw new Error('Not authenticated with Google Drive.');
+        const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=${encodeURIComponent(alt)}`;
+        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${t}` } });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error?.message || `Drive API error (${res.status})`);
+        }
+        const data = await res.json();
+        return { result: data };
+      }
+    }
+  };
+}
+
 async function findFileInDrive(name) {
-  const response = await gapi.client.drive.files.list({
+  const drive = getDriveClient();
+  const response = await drive.files.list({
     q: `name='${name}' and trashed=false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   });
-  const files = response.result.files;
+  const files = response.result?.files;
   return files && files.length > 0 ? files[0].id : null;
 }
 
 async function getOrCreateFolder(folderName) {
-  const response = await gapi.client.drive.files.list({
+  const drive = getDriveClient();
+  const response = await drive.files.list({
     q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   });
-  const files = response.result.files;
+  const files = response.result?.files;
   if (files && files.length > 0) return files[0].id;
   const fileMetadata = { name: folderName, mimeType: 'application/vnd.google-apps.folder' };
-  const createResp = await gapi.client.drive.files.create({ resource: fileMetadata, fields: 'id' });
-  return createResp.result.id;
+  const createResp = await drive.files.create({ resource: fileMetadata, fields: 'id' });
+  return createResp.result?.id;
 }
 
 async function createFileInDrive(data, folderId) {
@@ -435,9 +586,10 @@ async function createFileInDrive(data, folderId) {
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
   form.append('file', blob);
+  const token = getAuthToken();
   const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + gapi.client.getToken().access_token },
+    headers: { 'Authorization': 'Bearer ' + token },
     body: form,
   });
   if (!response.ok) throw new Error('Failed to create file');
@@ -446,9 +598,10 @@ async function createFileInDrive(data, folderId) {
 
 async function updateFile(fileId, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const token = getAuthToken();
   const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
     method: 'PATCH',
-    headers: { 'Authorization': 'Bearer ' + gapi.client.getToken().access_token },
+    headers: { 'Authorization': 'Bearer ' + token },
     body: blob,
   });
   if (!response.ok) throw new Error('Failed to update file');
@@ -501,7 +654,8 @@ window.restoreFromDrive = async function() {
     }
     const fileId = await findFileInDrive(FILE_NAME);
     if (!fileId) { alert('No backup found in Drive.'); return; }
-    const response = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
+    const drive = getDriveClient();
+    const response = await drive.files.get({ fileId: fileId, alt: 'media' });
     const data = response.result;
     if (!data.expenses && !data.income) throw new Error('Invalid backup file.');
     restoreData(data);
